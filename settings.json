@@ -1,0 +1,12 @@
+{
+  "dark_mode": false,
+  "window_width": 1200,
+  "window_height": 800,
+  "window_maximized": false,
+  "last_preset_used": "",
+  "auto_refresh_system_info": true,
+  "confirm_package_installation": true,
+  "confirm_bloatware_removal": true,
+  "search_limit": 100,
+  "command_timeout": 30
+}

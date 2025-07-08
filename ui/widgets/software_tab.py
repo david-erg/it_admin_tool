@@ -14,6 +14,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QThread
 
 from core import ConfigManager
+from software import PackageSearcher, PackageInstaller, ChocolateyManager
+from software.package_search import PackageSearchWorker
+from software.package_installer import PackageInstallWorker
+from software.chocolatey_manager import ChocolateyInstallWorker
 
 
 class SoftwareTab(QWidget):
@@ -29,6 +33,11 @@ class SoftwareTab(QWidget):
         self.config_manager = config_manager
         self.selected_packages: Set[str] = set()
         
+        # Backend managers
+        self.chocolatey_manager = ChocolateyManager()
+        self.package_searcher = PackageSearcher()
+        self.package_installer = PackageInstaller()
+        
         # Thread management
         self.search_thread: Optional[QThread] = None
         self.install_thread: Optional[QThread] = None
@@ -36,6 +45,9 @@ class SoftwareTab(QWidget):
         
         self._init_ui()
         self._setup_connections()
+        
+        # Check Chocolatey status on startup
+        self._check_chocolatey_status()
     
     def _init_ui(self):
         """Initialize the user interface."""
@@ -109,18 +121,17 @@ class SoftwareTab(QWidget):
         search_layout.addLayout(search_controls_layout, 0)
         
         # Package table
-        self.package_table = QTableWidget(0, 3)
-        self.package_table.setHorizontalHeaderLabels(["Package", "Version", "Description"])
+        self.package_table = QTableWidget(0, 4)
+        self.package_table.setHorizontalHeaderLabels(["Select", "Package", "Version", "Description"])
         
         # Configure table
         header = self.package_table.horizontalHeader()
-        header.setStretchLastSection(True)
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Select column
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)       # Package column
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Version column
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)           # Description column
         
-        self.package_table.setColumnWidth(0, 200)
-        self.package_table.setColumnWidth(1, 100)
+        self.package_table.setColumnWidth(1, 200)
         self.package_table.setMinimumHeight(200)
         self.package_table.setAlternatingRowColors(True)
         self.package_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -172,6 +183,11 @@ class SoftwareTab(QWidget):
         self.install_output.setMaximumHeight(200)
         output_layout.addWidget(self.install_output)
         
+        # Clear output button
+        clear_output_btn = QPushButton("Clear Output")
+        clear_output_btn.clicked.connect(self.install_output.clear)
+        output_layout.addWidget(clear_output_btn)
+        
         output_group.setLayout(output_layout)
         return output_group
     
@@ -186,9 +202,18 @@ class SoftwareTab(QWidget):
         self.search_btn.clicked.connect(self._search_packages)
         
         # Selection connections
-        self.package_table.cellChanged.connect(self._handle_checkbox_change)
         self.install_btn.clicked.connect(self._install_selected)
         self.clear_btn.clicked.connect(self._clear_selection)
+    
+    def _check_chocolatey_status(self):
+        """Check Chocolatey installation status on startup."""
+        if not self.chocolatey_manager.is_chocolatey_installed():
+            self.install_output.append("⚠ Warning: Chocolatey is not installed.")
+            self.install_output.append("Package search and installation require Chocolatey.")
+            self.install_output.append("Some features may not work until Chocolatey is installed.")
+        else:
+            version = self.chocolatey_manager.get_chocolatey_version()
+            self.install_output.append(f"✓ Chocolatey is available (version: {version})")
     
     def _refresh_preset_combo(self):
         """Refresh the preset combo box with available presets."""
@@ -226,7 +251,7 @@ class SoftwareTab(QWidget):
         QMessageBox.information(
             self,
             "Preset Loaded",
-            f"Loaded preset '{preset_name}' with {len(preset_packages)} packages.\\n\\n"
+            f"Loaded preset '{preset_name}' with {len(preset_packages)} packages.\n\n"
             "You can now install them or add more packages manually."
         )
     
@@ -236,7 +261,7 @@ class SoftwareTab(QWidget):
         import subprocess
         import platform
         
-        config_file = self.config_manager.app_path / self.config_manager.presets_file.name
+        config_file = self.config_manager.presets_file
         
         try:
             if platform.system() == "Windows":
@@ -247,15 +272,15 @@ class SoftwareTab(QWidget):
             QMessageBox.information(
                 self,
                 "Edit Presets", 
-                f"Opening presets configuration file:\\n{config_file}\\n\\n"
+                f"Opening presets configuration file:\n{config_file}\n\n"
                 "After editing, restart the application to see changes."
             )
         except Exception as e:
             QMessageBox.warning(
                 self,
                 "Cannot Open File",
-                f"Could not open presets file automatically.\\n\\n"
-                f"File location: {config_file}\\n\\nError: {str(e)}"
+                f"Could not open presets file automatically.\n\n"
+                f"File location: {config_file}\n\nError: {str(e)}"
             )
     
     def _search_packages(self):
@@ -265,22 +290,98 @@ class SoftwareTab(QWidget):
             QMessageBox.information(self, "Search", "Please enter a search term")
             return
         
-        # TODO: Implement package search using software module
-        # This will be implemented when we create the software management module
-        self.install_output.append(f"Searching for packages containing '{query}'...")
-        self.install_output.append("Note: Package search will be implemented in the software management module.")
+        # Check if Chocolatey is available
+        if not self.chocolatey_manager.is_chocolatey_installed():
+            QMessageBox.warning(
+                self, 
+                "Chocolatey Required", 
+                "Chocolatey is required for package search.\n\n"
+                "Would you like to install Chocolatey first?"
+            )
+            return
+        
+        # Stop any existing search thread
+        if self.search_thread and self.search_thread.isRunning():
+            self.search_thread.quit()
+            self.search_thread.wait()
+        
+        # Disable search button during search
+        self.search_btn.setEnabled(False)
+        self.search_btn.setText("Searching...")
+        
+        # Clear previous results
+        self.package_table.setRowCount(0)
+        
+        # Create search options
+        search_options = {
+            'exact_match': self.exact_match_cb.isChecked(),
+            'limit': 50  # Reasonable limit for UI display
+        }
+        
+        # Create search worker and thread
+        self.search_thread = QThread()
+        self.search_worker = PackageSearchWorker(query, search_options)
+        self.search_worker.moveToThread(self.search_thread)
+        
+        # Connect signals
+        self.search_thread.started.connect(self.search_worker.run)
+        self.search_worker.signals.progress.connect(self._on_search_progress)
+        self.search_worker.signals.result.connect(self._on_search_complete)
+        self.search_worker.signals.error.connect(self._on_search_error)
+        self.search_worker.signals.finished.connect(self.search_thread.quit)
+        self.search_worker.signals.finished.connect(self._on_search_finished)
+        
+        # Start the search
+        self.search_thread.start()
     
-    def _handle_checkbox_change(self, row: int, column: int):
-        """Handle package selection changes in the table."""
-        if column == 0:  # Only handle checkbox changes in package name column
-            item = self.package_table.item(row, column)
-            if item:
-                pkg_name = item.text()
-                if item.checkState() == Qt.Checked:
-                    self.selected_packages.add(pkg_name)
-                else:
-                    self.selected_packages.discard(pkg_name)
-                self._refresh_selected_list()
+    def _on_search_progress(self, message: str):
+        """Handle search progress updates."""
+        self.install_output.append(message)
+    
+    def _on_search_complete(self, packages):
+        """Handle search completion with results."""
+        self.package_table.setRowCount(len(packages))
+        
+        for row, package in enumerate(packages):
+            # Checkbox for selection
+            checkbox = QCheckBox()
+            checkbox.stateChanged.connect(lambda state, pkg=package.name: self._on_package_checkbox_changed(pkg, state))
+            self.package_table.setCellWidget(row, 0, checkbox)
+            
+            # Package name
+            name_item = QTableWidgetItem(package.name)
+            name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
+            self.package_table.setItem(row, 1, name_item)
+            
+            # Version
+            version_item = QTableWidgetItem(package.version)
+            version_item.setFlags(version_item.flags() & ~Qt.ItemIsEditable)
+            self.package_table.setItem(row, 2, version_item)
+            
+            # Description
+            description_item = QTableWidgetItem(package.description)
+            description_item.setFlags(description_item.flags() & ~Qt.ItemIsEditable)
+            self.package_table.setItem(row, 3, description_item)
+        
+        self.install_output.append(f"Found {len(packages)} packages")
+    
+    def _on_search_error(self, error_message: str):
+        """Handle search errors."""
+        self.install_output.append(f"Search error: {error_message}")
+        QMessageBox.warning(self, "Search Error", f"Search failed: {error_message}")
+    
+    def _on_search_finished(self):
+        """Handle search completion (success or failure)."""
+        self.search_btn.setEnabled(True)
+        self.search_btn.setText("Search")
+    
+    def _on_package_checkbox_changed(self, package_name: str, state: int):
+        """Handle package checkbox state changes."""
+        if state == Qt.Checked:
+            self.selected_packages.add(package_name)
+        else:
+            self.selected_packages.discard(package_name)
+        self._refresh_selected_list()
     
     def _refresh_selected_list(self):
         """Update the selected packages list display."""
@@ -294,12 +395,10 @@ class SoftwareTab(QWidget):
         self._refresh_selected_list()
         
         # Update checkboxes in table
-        self.package_table.blockSignals(True)
         for row in range(self.package_table.rowCount()):
-            item = self.package_table.item(row, 0)
-            if item:
-                item.setCheckState(Qt.Unchecked)
-        self.package_table.blockSignals(False)
+            checkbox = self.package_table.cellWidget(row, 0)
+            if checkbox:
+                checkbox.setChecked(False)
     
     def _install_selected(self):
         """Install selected packages."""
@@ -307,12 +406,147 @@ class SoftwareTab(QWidget):
             QMessageBox.information(self, "No Selection", "Please select at least one package to install.")
             return
         
-        # TODO: Implement package installation using software module
-        # This will be implemented when we create the software management module
-        package_list = '\\n'.join(f"• {pkg}" for pkg in sorted(self.selected_packages))
-        self.install_output.append(f"Would install {len(self.selected_packages)} package(s):")
-        self.install_output.append(package_list)
-        self.install_output.append("Note: Package installation will be implemented in the software management module.")
+        # Check if Chocolatey is available
+        if not self.chocolatey_manager.is_chocolatey_installed():
+            reply = QMessageBox.question(
+                self,
+                "Chocolatey Required", 
+                "Chocolatey is required for package installation.\n\n"
+                "Would you like to install Chocolatey first?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                self._install_chocolatey()
+            return
+        
+        # Confirm installation
+        package_list = '\n'.join(f"• {pkg}" for pkg in sorted(self.selected_packages))
+        reply = QMessageBox.question(
+            self,
+            "Confirm Installation",
+            f"Install {len(self.selected_packages)} package(s)?\n\n{package_list}\n\n"
+            "This may take several minutes.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            return
+        
+        # Stop any existing install thread
+        if self.install_thread and self.install_thread.isRunning():
+            self.install_thread.quit()
+            self.install_thread.wait()
+        
+        # Disable install button during installation
+        self.install_btn.setEnabled(False)
+        self.install_btn.setText("Installing...")
+        
+        # Create install worker and thread
+        self.install_thread = QThread()
+        self.install_worker = PackageInstallWorker(list(self.selected_packages))
+        self.install_worker.moveToThread(self.install_thread)
+        
+        # Connect signals
+        self.install_thread.started.connect(self.install_worker.run)
+        self.install_worker.signals.progress.connect(self._on_install_progress)
+        self.install_worker.signals.result.connect(self._on_install_complete)
+        self.install_worker.signals.error.connect(self._on_install_error)
+        self.install_worker.signals.finished.connect(self.install_thread.quit)
+        self.install_worker.signals.finished.connect(self._on_install_finished)
+        
+        # Start the installation
+        self.install_thread.start()
+    
+    def _install_chocolatey(self):
+        """Install Chocolatey."""
+        reply = QMessageBox.question(
+            self,
+            "Install Chocolatey",
+            "This will install Chocolatey package manager.\n\n"
+            "Administrator privileges are required.\n"
+            "This may take several minutes.\n\n"
+            "Continue?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            return
+        
+        # Stop any existing choco thread
+        if self.choco_thread and self.choco_thread.isRunning():
+            self.choco_thread.quit()
+            self.choco_thread.wait()
+        
+        # Create Chocolatey install worker and thread
+        self.choco_thread = QThread()
+        self.choco_worker = ChocolateyInstallWorker()
+        self.choco_worker.moveToThread(self.choco_thread)
+        
+        # Connect signals
+        self.choco_thread.started.connect(self.choco_worker.run)
+        self.choco_worker.signals.progress.connect(self._on_install_progress)
+        self.choco_worker.signals.result.connect(self._on_chocolatey_install_complete)
+        self.choco_worker.signals.error.connect(self._on_install_error)
+        self.choco_worker.signals.finished.connect(self.choco_thread.quit)
+        self.choco_worker.signals.finished.connect(self._on_install_finished)
+        
+        # Start Chocolatey installation
+        self.choco_thread.start()
+    
+    def _on_install_progress(self, message: str):
+        """Handle installation progress updates."""
+        self.install_output.append(message)
+        # Auto-scroll to bottom
+        self.install_output.verticalScrollBar().setValue(
+            self.install_output.verticalScrollBar().maximum()
+        )
+    
+    def _on_install_complete(self, results):
+        """Handle installation completion."""
+        successful = [r for r in results if r.status.value == "success"]
+        failed = [r for r in results if r.status.value == "failed"]
+        
+        if successful:
+            QMessageBox.information(
+                self,
+                "Installation Complete",
+                f"Successfully installed {len(successful)} out of {len(results)} packages!\n\n"
+                f"See output for details."
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Installation Failed",
+                f"No packages were successfully installed.\n\n"
+                f"See output for error details."
+            )
+    
+    def _on_chocolatey_install_complete(self, success: bool):
+        """Handle Chocolatey installation completion."""
+        if success:
+            QMessageBox.information(
+                self,
+                "Chocolatey Installed",
+                "Chocolatey has been installed successfully!\n\n"
+                "You can now search and install packages."
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Installation Failed",
+                "Chocolatey installation failed.\n\n"
+                "See output for error details."
+            )
+    
+    def _on_install_error(self, error_message: str):
+        """Handle installation errors."""
+        self.install_output.append(f"Error: {error_message}")
+    
+    def _on_install_finished(self):
+        """Handle installation completion (success or failure)."""
+        self.install_btn.setEnabled(True)
+        self.install_btn.setText("Install Selected Packages")
     
     def cleanup(self):
         """Cleanup resources when the tab is closed."""

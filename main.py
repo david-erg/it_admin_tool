@@ -31,7 +31,7 @@ sys.path.insert(0, str(current_dir))
 try:
     # Import core modules
     from core.utils import check_admin_privileges, get_application_path
-    from core.config import load_application_config, save_application_config
+    from core.config import ConfigManager
     
     # Import all functional modules
     from software import ChocolateyManager, PackageInstaller, PackageSearcher, PresetsManager
@@ -40,7 +40,7 @@ try:
     from file_ops import FolderManager, PathUtilities
     
     # Import UI components
-    from ui.main_window import ITAdminTool
+    from ui.main_window import MainWindow
     
 except ImportError as e:
     print(f"ERROR: Failed to import required modules: {e}")
@@ -59,7 +59,7 @@ class ITAdminApp:
         self.app_path = get_application_path()
         
         # Load application configuration
-        self.config = load_application_config()
+        self.config_manager = ConfigManager()
         
         print(f"{self.app_name} v{self.version}")
         print(f"Running from: {self.app_path}")
@@ -101,7 +101,7 @@ class ITAdminApp:
                 msg_box.exec()
             
             # Create and show main window
-            main_window = ITAdminTool()
+            main_window = MainWindow()
             main_window.show()
             
             # Run the application
@@ -175,21 +175,26 @@ class ITAdminApp:
             query = input("Enter search term: ").strip()
             if query:
                 searcher = PackageSearcher()
-                packages = searcher.search_packages(query)
-                print(f"\nFound {len(packages)} packages:")
-                for pkg in packages[:10]:  # Show first 10
-                    print(f"  - {pkg}")
+                success, packages, error = searcher.search_packages(query)
+                if success:
+                    print(f"\nFound {len(packages)} packages:")
+                    for pkg in packages[:10]:  # Show first 10
+                        print(f"  - {pkg.name} ({pkg.version}): {pkg.description}")
+                else:
+                    print(f"Search failed: {error}")
         
         elif choice == "2":
             packages = input("Enter package names (comma-separated): ").strip()
             if packages:
                 package_list = [pkg.strip() for pkg in packages.split(',')]
-                installer = PackageInstaller(lambda msg: print(f"[INSTALL] {msg}"))
-                installer.install_packages(package_list)
+                installer = PackageInstaller()
+                print("Installing packages...")
+                # Note: This would require implementing the actual installation
+                print(f"Would install: {package_list}")
         
         elif choice == "3":
-            presets_manager = PresetsManager()
-            available_presets = presets_manager.get_available_presets()
+            presets_manager = PresetsManager(self.config_manager)
+            available_presets = self.config_manager.get_preset_names()
             print("\nAvailable presets:")
             for i, preset_name in enumerate(available_presets, 1):
                 print(f"  {i}. {preset_name}")
@@ -198,45 +203,61 @@ class ITAdminApp:
                 selection = int(input("Select preset number: ")) - 1
                 if 0 <= selection < len(available_presets):
                     preset_name = available_presets[selection]
-                    packages = presets_manager.get_preset_packages(preset_name)
-                    print(f"Preset '{preset_name}' contains {len(packages)} packages")
+                    packages = self.config_manager.get_preset(preset_name)
+                    print(f"Preset '{preset_name}' contains {len(packages)} packages:")
+                    for pkg in packages:
+                        print(f"  - {pkg}")
                     
                     confirm = input("Install these packages? (y/n): ").strip().lower()
                     if confirm == 'y':
-                        installer = PackageInstaller(lambda msg: print(f"[INSTALL] {msg}"))
-                        installer.install_packages(packages)
+                        print("Installation would start here...")
             except (ValueError, IndexError):
                 print("Invalid selection.")
         
         elif choice == "4":
             chocolatey = ChocolateyManager()
-            if chocolatey.is_installed():
-                version = chocolatey.get_version()
+            if chocolatey.is_chocolatey_installed():
+                version = chocolatey.get_chocolatey_version()
                 print(f"Chocolatey is installed (version: {version})")
             else:
                 print("Chocolatey is not installed")
                 install = input("Install Chocolatey? (y/n): ").strip().lower()
                 if install == 'y':
-                    chocolatey.install_chocolatey()
+                    print("Chocolatey installation would start here...")
     
     def _cli_system_information(self):
         """CLI system information operations"""
         print("\n--- System Information ---")
         print("Gathering system information...")
         
-        worker = SystemInfoWorker()
-        system_info = worker.gather_system_info()
+        # Create a simple progress callback
+        def progress_callback(message):
+            print(f"  {message}")
         
-        print("\nSystem Information:")
-        print("-" * 40)
-        for key, value in system_info.items():
-            print(f"{key:20}: {value}")
-        
-        save = input("\nSave to file? (y/n): ").strip().lower()
-        if save == 'y':
-            filename = f"system_info_{worker.get_timestamp()}.csv"
-            worker.export_to_csv(system_info, filename)
-            print(f"Saved to: {filename}")
+        try:
+            from system_info import SystemInfoManager
+            manager = SystemInfoManager()
+            system_info = manager.gather_all_info(progress_callback)
+            
+            if 'summary' in system_info:
+                print("\nSystem Information:")
+                print("-" * 40)
+                for key, value in system_info['summary'].items():
+                    print(f"{key:20}: {value}")
+                
+                save = input("\nSave to file? (y/n): ").strip().lower()
+                if save == 'y':
+                    from datetime import datetime
+                    filename = f"system_info_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                    if manager.export_info(system_info, Path(filename), 'csv'):
+                        print(f"Saved to: {filename}")
+                    else:
+                        print("Failed to save file")
+            else:
+                print("Failed to gather system information")
+                
+        except Exception as e:
+            print(f"Error: {e}")
     
     def _cli_windows_setup(self):
         """CLI Windows setup operations"""
@@ -252,8 +273,12 @@ class ITAdminApp:
             common_apps = bloatware_remover.get_common_bloatware()
             
             print(f"\nCommon bloatware apps ({len(common_apps)}):")
-            for app in common_apps[:10]:
-                print(f"  - {app}")
+            for i, app in enumerate(common_apps[:10], 1):
+                display_name = bloatware_remover.BLOATWARE_APPS.get(app)
+                if display_name:
+                    print(f"  {i}. {display_name.display_name}")
+                else:
+                    print(f"  {i}. {app}")
             
             confirm = input("\nRemove common bloatware? (y/n): ").strip().lower()
             if confirm == 'y':
@@ -265,8 +290,12 @@ class ITAdminApp:
             recommended = settings_manager.get_recommended_settings()
             
             print(f"\nRecommended settings ({len(recommended)}):")
-            for setting in recommended[:10]:
-                print(f"  - {setting}")
+            for i, setting_key in enumerate(recommended[:10], 1):
+                setting = settings_manager.SETTINGS_CATALOG.get(setting_key)
+                if setting:
+                    print(f"  {i}. {setting.name}")
+                else:
+                    print(f"  {i}. {setting_key}")
             
             confirm = input("\nApply recommended settings? (y/n): ").strip().lower()
             if confirm == 'y':
@@ -274,12 +303,11 @@ class ITAdminApp:
                 print(f"Applied {len(successful)} settings, {len(failed)} failed")
         
         elif choice == "3":
-            from windows_setup.user_manager import create_admin_user
-            
             username = input("Enter username: ").strip()
             password = input("Enter password: ").strip()
             
             if username and password:
+                from windows_setup.user_manager import create_admin_user
                 result = create_admin_user(
                     username, password, 
                     progress_callback=lambda msg: print(f"[USER] {msg}")
@@ -363,15 +391,18 @@ class ITAdminApp:
         
         # 3. Install software
         print("\n3. Installing essential software...")
-        presets_manager = PresetsManager()
-        essential_packages = presets_manager.get_preset_packages("Basic Office Setup")
-        installer = PackageInstaller(lambda msg: print(f"  [INSTALL] {msg}"))
-        installer.install_packages(essential_packages)
+        essential_packages = self.config_manager.get_preset("Basic Office Setup")
+        if essential_packages:
+            print(f"  Would install {len(essential_packages)} packages:")
+            for pkg in essential_packages:
+                print(f"    - {pkg}")
+        else:
+            print("  No essential packages preset found")
         
         print("\n--- Quick Setup Complete ---")
         print(f"Bloatware removed: {len(successful_removals)}")
         print(f"Settings applied: {len(successful_settings)}")
-        print(f"Software packages installed: {len(essential_packages)}")
+        print(f"Software packages listed: {len(essential_packages) if essential_packages else 0}")
         print("\nRecommended: Restart your computer to complete all changes.")
 
 

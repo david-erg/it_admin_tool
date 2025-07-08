@@ -136,7 +136,7 @@ class ConfigManager:
         If the presets file doesn't exist, creates it with default presets.
         
         Returns:
-            Dict[str, List[str]]: Loaded presets
+            Dict[str, List[str]]: Loaded presets (returns package lists, not full objects)
         """
         try:
             if not self.presets_file.exists():
@@ -144,8 +144,22 @@ class ConfigManager:
             
             with open(self.presets_file, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-                self._presets = config.get("presets", {})
+                raw_presets = config.get("presets", {})
                 
+                # Convert presets to simple format (name -> package list)
+                self._presets = {}
+                for preset_name, preset_data in raw_presets.items():
+                    if isinstance(preset_data, list):
+                        # Old format: preset is directly a list of packages
+                        self._presets[preset_name] = preset_data
+                    elif isinstance(preset_data, dict):
+                        # New format: preset is an object with packages array
+                        packages = preset_data.get("packages", [])
+                        self._presets[preset_name] = packages
+                    else:
+                        # Skip invalid preset format
+                        continue
+                        
         except Exception as e:
             print(f"Warning: Failed to load presets: {e}")
             self._presets = DEFAULT_PRESETS.copy()
@@ -189,7 +203,19 @@ class ConfigManager:
         Returns:
             Optional[List[str]]: Preset packages or None if not found
         """
-        return self._presets.get(name)
+        preset_data = self._presets.get(name)
+        if preset_data is None:
+            return None
+        
+        # Handle both old format (simple list) and new format (object with packages array)
+        if isinstance(preset_data, list):
+            # Old format: preset is directly a list of packages
+            return preset_data
+        elif isinstance(preset_data, dict):
+            # New format: preset is an object with packages array
+            return preset_data.get("packages", [])
+        else:
+            return None
     
     def add_preset(self, name: str, packages: List[str]) -> bool:
         """

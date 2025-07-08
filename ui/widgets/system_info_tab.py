@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QProgressBar, QMessageBox, QFileDialog, QGroupBox
 )
 from PySide6.QtCore import QThread, QTimer
+from PySide6.QtGui import QTextCursor
 
 from core import ConfigManager
 
@@ -181,9 +182,9 @@ class SystemInfoTab(QWidget):
         self.sys_info_output.append("Report generated successfully")
         self.sys_info_output.append("=" * 60)
         
-        # Scroll to top
+        # Scroll to top - Fixed PySide6 syntax
         cursor = self.sys_info_output.textCursor()
-        cursor.movePosition(cursor.Start)
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
         self.sys_info_output.setTextCursor(cursor)
     
     def _export_system_info(self):
@@ -222,14 +223,14 @@ class SystemInfoTab(QWidget):
             QMessageBox.information(
                 self,
                 "Export Successful",
-                f"System information exported successfully to:\\n{file_path}"
+                f"System information exported successfully to:\n{file_path}"
             )
             
         except Exception as e:
             QMessageBox.critical(
                 self,
                 "Export Error",
-                f"Failed to export system information:\\n{str(e)}"
+                f"Failed to export system information:\n{str(e)}"
             )
     
     def _on_auto_refresh_changed(self, checked: bool):
@@ -296,4 +297,4 @@ class SystemInfoTab(QWidget):
         
         lines.extend(["", "=" * 40])
         
-        return "\\n".join(lines)
+        return "\n".join(lines)

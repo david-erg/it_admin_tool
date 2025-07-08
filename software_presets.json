@@ -1,0 +1,414 @@
+{
+  "metadata": {
+    "version": "2.1",
+    "description": "Software presets for Admin's ToolBox - IT Administration Tool",
+    "last_updated": "2024-01-15",
+    "total_presets": 15,
+    "notes": [
+      "These presets define collections of software packages for different use cases",
+      "Package names correspond to Chocolatey package identifiers",
+      "Presets can be customized by editing this JSON file",
+      "Restart the application after making changes to see updates"
+    ]
+  },
+  "presets": {
+    "Basic Office Setup": {
+      "description": "Essential office applications for standard business workstations",
+      "category": "office",
+      "packages": [
+        "adobereader",
+        "googlechrome",
+        "firefox",
+        "7zip",
+        "notepadplusplus",
+        "vlc",
+        "teamviewer"
+      ],
+      "estimated_size_mb": 450,
+      "install_time_minutes": 15
+    },
+    "Developer Tools": {
+      "description": "Essential development tools and environments",
+      "category": "development", 
+      "packages": [
+        "git",
+        "vscode",
+        "nodejs",
+        "python",
+        "postman",
+        "notepadplusplus",
+        "googlechrome",
+        "firefox",
+        "filezilla",
+        "putty"
+      ],
+      "estimated_size_mb": 850,
+      "install_time_minutes": 25
+    },
+    "Media & Design": {
+      "description": "Creative and media production applications",
+      "category": "creative",
+      "packages": [
+        "vlc",
+        "gimp",
+        "audacity",
+        "blender",
+        "obs-studio",
+        "handbrake",
+        "inkscape",
+        "paint.net"
+      ],
+      "estimated_size_mb": 1200,
+      "install_time_minutes": 35
+    },
+    "System Utilities": {
+      "description": "System maintenance and administration tools",
+      "category": "utilities",
+      "packages": [
+        "ccleaner",
+        "malwarebytes",
+        "teamviewer",
+        "anydesk",
+        "windirstat",
+        "crystaldiskinfo",
+        "hwinfo",
+        "autoruns",
+        "procexp",
+        "7zip"
+      ],
+      "estimated_size_mb": 320,
+      "install_time_minutes": 18
+    },
+    "Gaming Setup": {
+      "description": "Gaming platforms and related applications",
+      "category": "gaming",
+      "packages": [
+        "steam",
+        "discord",
+        "nvidia-geforce-experience",
+        "origin",
+        "epicgameslauncher",
+        "battle.net",
+        "uplay",
+        "obs-studio",
+        "msiafterburner"
+      ],
+      "estimated_size_mb": 950,
+      "install_time_minutes": 30
+    },
+    "Office 365 + Essential Tools": {
+      "description": "Microsoft Office environment with essential productivity tools",
+      "category": "office",
+      "packages": [
+        "adobereader",
+        "googlechrome",
+        "7zip",
+        "vlc",
+        "teamviewer",
+        "notepadplusplus",
+        "microsoftteams",
+        "onedrive",
+        "skype"
+      ],
+      "estimated_size_mb": 520,
+      "install_time_minutes": 20
+    },
+    "Web Development": {
+      "description": "Complete web development environment",
+      "category": "development",
+      "packages": [
+        "vscode",
+        "nodejs",
+        "git",
+        "googlechrome",
+        "firefox",
+        "postman",
+        "filezilla",
+        "xampp",
+        "mysql.workbench",
+        "github-desktop"
+      ],
+      "estimated_size_mb": 1100,
+      "install_time_minutes": 40
+    },
+    "Graphic Design Workstation": {
+      "description": "Professional graphic design and creative suite",
+      "category": "creative",
+      "packages": [
+        "adobecreativecloud",
+        "gimp",
+        "inkscape",
+        "blender",
+        "vlc",
+        "7zip",
+        "colorpicker",
+        "greenshot",
+        "fontbase"
+      ],
+      "estimated_size_mb": 2500,
+      "install_time_minutes": 60
+    },
+    "Security Tools": {
+      "description": "Cybersecurity and system protection tools",
+      "category": "security",
+      "packages": [
+        "malwarebytes",
+        "ccleaner",
+        "glasswire",
+        "wireshark",
+        "nmap",
+        "procexp",
+        "autoruns",
+        "sysinternals",
+        "keepass"
+      ],
+      "estimated_size_mb": 280,
+      "install_time_minutes": 15
+    },
+    "Remote Work Setup": {
+      "description": "Tools for remote work and collaboration",
+      "category": "productivity",
+      "packages": [
+        "teamviewer",
+        "anydesk",
+        "zoom",
+        "skype",
+        "slack",
+        "discord",
+        "googlechrome",
+        "microsoftteams",
+        "obs-studio",
+        "notion"
+      ],
+      "estimated_size_mb": 680,
+      "install_time_minutes": 25
+    },
+    "Data Analysis": {
+      "description": "Data science and analysis tools",
+      "category": "development",
+      "packages": [
+        "python",
+        "r.project",
+        "anaconda3",
+        "vscode",
+        "git",
+        "tableau-public",
+        "powerbi",
+        "notepadplusplus",
+        "7zip"
+      ],
+      "estimated_size_mb": 1800,
+      "install_time_minutes": 50
+    },
+    "Video Production": {
+      "description": "Video editing and production suite",
+      "category": "creative",
+      "packages": [
+        "obs-studio",
+        "handbrake",
+        "vlc",
+        "audacity",
+        "blender",
+        "ffmpeg",
+        "mkvtoolnix",
+        "mediainfo",
+        "youtube-dl"
+      ],
+      "estimated_size_mb": 800,
+      "install_time_minutes": 30
+    },
+    "Network Administration": {
+      "description": "Network management and monitoring tools",
+      "category": "utilities",
+      "packages": [
+        "wireshark",
+        "nmap",
+        "putty",
+        "winscp",
+        "angryip",
+        "advanced-ip-scanner",
+        "networx",
+        "glasswire",
+        "teamviewer"
+      ],
+      "estimated_size_mb": 350,
+      "install_time_minutes": 18
+    },
+    "Education & Research": {
+      "description": "Academic and research tools",
+      "category": "education",
+      "packages": [
+        "adobereader",
+        "notepadplusplus",
+        "7zip",
+        "vlc",
+        "googlechrome",
+        "firefox",
+        "zotero",
+        "mendeley-reference-manager",
+        "texstudio",
+        "geogebra"
+      ],
+      "estimated_size_mb": 650,
+      "install_time_minutes": 28
+    },
+    "Minimal Essential": {
+      "description": "Absolute minimum essential applications",
+      "category": "basic",
+      "packages": [
+        "googlechrome",
+        "7zip",
+        "vlc",
+        "notepadplusplus",
+        "adobereader"
+      ],
+      "estimated_size_mb": 180,
+      "install_time_minutes": 8
+    }
+  },
+  "package_info": {
+    "common_packages": {
+      "googlechrome": {
+        "name": "Google Chrome",
+        "description": "Fast, secure web browser",
+        "category": "browsers",
+        "size_mb": 85
+      },
+      "firefox": {
+        "name": "Mozilla Firefox", 
+        "description": "Open-source web browser",
+        "category": "browsers",
+        "size_mb": 75
+      },
+      "7zip": {
+        "name": "7-Zip",
+        "description": "File archiver with high compression ratio",
+        "category": "utilities",
+        "size_mb": 2
+      },
+      "vlc": {
+        "name": "VLC Media Player",
+        "description": "Cross-platform multimedia player",
+        "category": "media",
+        "size_mb": 45
+      },
+      "notepadplusplus": {
+        "name": "Notepad++",
+        "description": "Advanced text and source code editor",
+        "category": "editors",
+        "size_mb": 15
+      },
+      "adobereader": {
+        "name": "Adobe Acrobat Reader DC",
+        "description": "PDF viewer and editor",
+        "category": "office",
+        "size_mb": 180
+      },
+      "vscode": {
+        "name": "Visual Studio Code",
+        "description": "Lightweight but powerful source code editor",
+        "category": "development",
+        "size_mb": 200
+      },
+      "git": {
+        "name": "Git",
+        "description": "Distributed version control system",
+        "category": "development",
+        "size_mb": 45
+      },
+      "nodejs": {
+        "name": "Node.js",
+        "description": "JavaScript runtime built on Chrome's V8 engine",
+        "category": "development", 
+        "size_mb": 65
+      },
+      "python": {
+        "name": "Python",
+        "description": "High-level programming language",
+        "category": "development",
+        "size_mb": 85
+      },
+      "teamviewer": {
+        "name": "TeamViewer",
+        "description": "Remote access and support software",
+        "category": "utilities",
+        "size_mb": 35
+      },
+      "discord": {
+        "name": "Discord",
+        "description": "Voice, video and text communication service",
+        "category": "communication",
+        "size_mb": 120
+      },
+      "steam": {
+        "name": "Steam",
+        "description": "Digital distribution platform for games",
+        "category": "gaming",
+        "size_mb": 150
+      },
+      "obs-studio": {
+        "name": "OBS Studio",
+        "description": "Free and open source streaming/recording software",
+        "category": "media",
+        "size_mb": 285
+      }
+    }
+  },
+  "configuration": {
+    "auto_install_chocolatey": true,
+    "verify_packages_after_install": true,
+    "create_desktop_shortcuts": true,
+    "install_timeout_minutes": 10,
+    "max_concurrent_installs": 3,
+    "retry_failed_installs": true,
+    "update_packages_after_install": false,
+    "backup_existing_config": true
+  },
+  "categories": {
+    "office": {
+      "name": "Office & Productivity",
+      "description": "Business applications and productivity tools",
+      "icon": "📊"
+    },
+    "development": {
+      "name": "Development & Programming", 
+      "description": "Software development tools and environments",
+      "icon": "💻"
+    },
+    "creative": {
+      "name": "Creative & Media",
+      "description": "Design, media production and creative applications",
+      "icon": "🎨"
+    },
+    "utilities": {
+      "name": "System Utilities",
+      "description": "System tools and maintenance applications",
+      "icon": "🔧"
+    },
+    "gaming": {
+      "name": "Gaming & Entertainment",
+      "description": "Games, gaming platforms and entertainment",
+      "icon": "🎮"
+    },
+    "security": {
+      "name": "Security & Privacy",
+      "description": "Security tools and privacy applications",
+      "icon": "🔒"
+    },
+    "productivity": {
+      "name": "Productivity & Collaboration",
+      "description": "Collaboration and remote work tools",
+      "icon": "🤝"
+    },
+    "education": {
+      "name": "Education & Research",
+      "description": "Academic and research applications",
+      "icon": "📚"
+    },
+    "basic": {
+      "name": "Basic Essentials",
+      "description": "Minimal essential applications",
+      "icon": "⭐"
+    }
+  }
+}

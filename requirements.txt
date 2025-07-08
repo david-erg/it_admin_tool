@@ -1,0 +1,105 @@
+# Admin's ToolBox - IT Administration Tool
+# Requirements file for all dependencies
+#
+# Install with: pip install -r requirements.txt
+# For development: pip install -r requirements.txt -e .
+
+# Core GUI Framework (Required for GUI mode)
+PySide6>=6.4.0
+
+# The application is designed to use primarily Python standard library
+# to minimize external dependencies and potential security vulnerabilities.
+# Most core functionality works with built-in modules only.
+
+# Core modules use only standard library:
+# - pathlib (built-in)
+# - subprocess (built-in)
+# - json (built-in)
+# - typing (built-in)
+# - dataclasses (built-in)
+# - enum (built-in)
+# - datetime (built-in)
+# - platform (built-in)
+# - os (built-in)
+# - sys (built-in)
+# - shutil (built-in)
+# - csv (built-in)
+# - re (built-in)
+
+# Optional Development Dependencies
+# Uncomment these if you plan to develop or test the application
+
+# Testing framework
+# pytest>=7.0.0
+# pytest-cov>=4.0.0           # Coverage reporting
+# pytest-mock>=3.8.0          # Mocking utilities
+# pytest-qt>=4.2.0            # Qt testing utilities
+
+# Code quality tools
+# black>=22.0.0                # Code formatting
+# flake8>=5.0.0                # Linting
+# mypy>=0.991                  # Type checking
+# isort>=5.10.0                # Import sorting
+
+# Documentation
+# sphinx>=5.0.0                # Documentation generation
+# sphinx-rtd-theme>=1.2.0      # ReadTheDocs theme
+# sphinx-autodoc-typehints>=1.19.0  # Type hints in docs
+
+# Packaging and distribution
+# setuptools>=65.0.0           # Package building
+# wheel>=0.37.0                # Wheel format
+# twine>=4.0.0                 # Package uploading
+
+# Security scanning (optional)
+# safety>=2.3.0                # Security vulnerability scanning
+# bandit>=1.7.0                # Security linting
+
+# Optional Enhanced Features
+# These are not required for basic functionality but add enhanced capabilities
+
+# For advanced file operations (optional)
+# send2trash>=1.8.0            # Safe file deletion
+
+# For enhanced system information (optional)  
+# psutil>=5.9.0                # System and process utilities
+# wmi>=1.5.0                   # Windows WMI interface (Windows only)
+
+# For configuration management (optional)
+# toml>=0.10.0                 # TOML configuration support
+
+# For logging enhancements (optional)
+# colorlog>=6.7.0              # Colored console logging
+
+# Platform Requirements:
+# - Windows 10 or later (application is Windows-specific)
+# - Python 3.8+ (required for dataclasses, typing features)
+# - Administrator privileges (recommended for full functionality)
+# - PowerShell 5.0+ (typically included with Windows 10+)
+# - Chocolatey package manager (auto-installed by application if needed)
+
+# Minimum Python version: 3.8
+# The application requires Python 3.8 or later for:
+# - Improved typing support and Literal types
+# - Enhanced dataclass features
+# - Better subprocess handling
+# - Advanced pathlib functionality
+# - Union type operator support (3.10+)
+
+# Installation Notes:
+# 1. For GUI functionality: pip install PySide6
+# 2. For CLI-only usage: No additional dependencies required
+# 3. Run as Administrator for full system access
+# 4. Some antivirus software may flag the application - add exception if needed
+
+# Compatibility:
+# - Tested on Windows 10 (build 19041+)
+# - Tested on Windows 11 (all builds)
+# - Tested with Python 3.8, 3.9, 3.10, 3.11, 3.12
+# - Compatible with both 32-bit and 64-bit Windows
+
+# Performance Notes:
+# - GUI mode requires ~200MB RAM minimum
+# - CLI mode requires ~50MB RAM minimum  
+# - Disk space: ~500MB for full Chocolatey package cache
+# - Network: Required for package downloads and updates

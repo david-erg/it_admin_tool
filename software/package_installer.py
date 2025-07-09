@@ -43,7 +43,125 @@ class PackageInstallResult:
             self.warnings = []
 
 
-class EnhancedPackageInstaller:
+class PackageInstaller:
+    """
+    Basic package installer for Chocolatey packages.
+    
+    This class provides basic methods for installing individual packages and
+    managing installations with standard error handling.
+    """
+    
+    def __init__(self):
+        # Import here to avoid circular imports
+        try:
+            from software.chocolatey_manager import ChocolateyManager
+            self.chocolatey_manager = ChocolateyManager()
+        except ImportError:
+            self.chocolatey_manager = None
+    
+    def install_package(
+        self, 
+        package_name: str, 
+        force: bool = True,
+        timeout: int = 300
+    ) -> PackageInstallResult:
+        """
+        Install a single package.
+        
+        Args:
+            package_name: Name of the package to install
+            force: Whether to force installation
+            timeout: Installation timeout in seconds
+        
+        Returns:
+            PackageInstallResult: Installation result
+        """
+        start_time = time.time()
+        
+        # Build command
+        cmd_parts = ["choco", "install", package_name, "-y"]
+        
+        if force:
+            cmd_parts.append("--force")
+        
+        cmd = " ".join(cmd_parts)
+        
+        try:
+            return_code, stdout, stderr = run_command_with_timeout(
+                cmd, timeout=timeout
+            )
+            
+            install_time = time.time() - start_time
+            
+            # Simple success check
+            success = return_code == 0
+            
+            if success:
+                return PackageInstallResult(
+                    package_name=package_name,
+                    status=InstallationStatus.SUCCESS,
+                    message=f"Successfully installed {package_name}",
+                    return_code=return_code,
+                    install_time=install_time,
+                    output=stdout,
+                    error_output=stderr,
+                    command_used=cmd
+                )
+            else:
+                return PackageInstallResult(
+                    package_name=package_name,
+                    status=InstallationStatus.FAILED,
+                    message=f"Installation failed: {stderr}",
+                    return_code=return_code,
+                    install_time=install_time,
+                    output=stdout,
+                    error_output=stderr,
+                    command_used=cmd
+                )
+                
+        except subprocess.TimeoutExpired:
+            install_time = time.time() - start_time
+            return PackageInstallResult(
+                package_name=package_name,
+                status=InstallationStatus.FAILED,
+                message=f"Installation timed out after {timeout} seconds",
+                install_time=install_time,
+                error_output="Installation timeout",
+                command_used=cmd
+            )
+        except Exception as e:
+            install_time = time.time() - start_time
+            return PackageInstallResult(
+                package_name=package_name,
+                status=InstallationStatus.FAILED,
+                message=f"Installation error: {str(e)}",
+                install_time=install_time,
+                error_output=str(e),
+                command_used=cmd
+            )
+    
+    def get_installation_requirements(self, packages: List[str]) -> Dict[str, any]:
+        """
+        Get installation requirements for a list of packages.
+        
+        Args:
+            packages: List of package names
+        
+        Returns:
+            Dict: Installation requirements and estimates
+        """
+        return {
+            'package_count': len(packages),
+            'estimated_time_minutes': len(packages) * 3,
+            'admin_required': True,
+            'admin_available': check_admin_privileges(),
+            'internet_required': True,
+            'chocolatey_available': self.chocolatey_manager.is_chocolatey_installed() if self.chocolatey_manager else False,
+            'disk_space_estimate_mb': len(packages) * 75
+        }
+
+
+class EnhancedPackageInstaller(PackageInstaller):
     """
     Enhanced package installer with comprehensive error reporting and logging.
     
@@ -52,6 +170,7 @@ class EnhancedPackageInstaller:
     """
     
     def __init__(self, logger=None):
+        super().__init__()
         self.logger = logger
         # Import here to avoid circular imports
         try:

@@ -15,13 +15,12 @@ from core import (
 )
 
 
-class EnhancedChocolateyManager:
+class ChocolateyManager:
     """
-    Enhanced Chocolatey package manager operations with detailed error reporting.
+    Basic Chocolatey package manager operations.
     
-    This class provides methods for checking Chocolatey installation status,
-    installing Chocolatey, and performing basic Chocolatey operations with
-    comprehensive error logging.
+    This class provides basic methods for checking Chocolatey installation status,
+    installing Chocolatey, and performing basic Chocolatey operations.
     """
     
     def __init__(self):
@@ -72,6 +71,154 @@ class EnhancedChocolateyManager:
     
     def test_chocolatey_functionality(self) -> Tuple[bool, str]:
         """
+        Test basic Chocolatey functionality.
+        
+        Returns:
+            Tuple[bool, str]: (is_working, status_message)
+        """
+        if not self.is_chocolatey_installed():
+            return False, "Chocolatey is not installed"
+        
+        try:
+            # Test basic version check
+            return_code, stdout, stderr = run_command_with_timeout(
+                "choco --version",
+                timeout=15
+            )
+            
+            if return_code != 0:
+                return False, f"Version check failed: {stderr.strip()}"
+            
+            if not stdout.strip():
+                return False, "Version check returned empty output"
+            
+            # Test simple list command
+            return_code, stdout, stderr = run_command_with_timeout(
+                "choco list chocolatey --exact --local-only --limit-output",
+                timeout=30
+            )
+            
+            if return_code != 0:
+                return False, f"List command failed: {stderr.strip()}"
+            
+            # All tests passed
+            version = self._chocolatey_version or "Unknown"
+            return True, f"Chocolatey is working properly (version: {version})"
+            
+        except subprocess.TimeoutExpired:
+            return False, "Chocolatey commands timed out"
+        except Exception as e:
+            return False, f"Chocolatey test failed: {str(e)}"
+    
+    def check_internet_connectivity(self) -> Tuple[bool, str]:
+        """
+        Check internet connectivity for Chocolatey operations.
+        
+        Returns:
+            Tuple[bool, str]: (has_connectivity, status_message)
+        """
+        test_hosts = ["chocolatey.org", "packages.chocolatey.org", "google.com"]
+        
+        for host in test_hosts:
+            try:
+                return_code, stdout, stderr = run_command_with_timeout(
+                    f"ping {host} -n 1",
+                    timeout=10
+                )
+                
+                if return_code == 0:
+                    return True, f"Internet connection available ({host} reachable)"
+                    
+            except Exception:
+                continue
+        
+        return False, "Internet connection may be limited - could not reach Chocolatey servers"
+    
+    def get_installed_packages(self, limit: int = 100) -> Tuple[bool, list, str]:
+        """
+        Get list of installed Chocolatey packages.
+        
+        Args:
+            limit: Maximum number of packages to return
+        
+        Returns:
+            Tuple[bool, list, str]: (success, package_list, error_message)
+        """
+        if not self.is_chocolatey_installed():
+            return False, [], "Chocolatey is not installed"
+        
+        try:
+            return_code, stdout, stderr = run_command_with_timeout(
+                f"choco list --local-only --limit-output",
+                timeout=45
+            )
+            
+            if return_code == 0:
+                packages = []
+                lines = stdout.splitlines()
+                
+                for line in lines[:limit]:
+                    parts = line.split('|')
+                    if len(parts) >= 2:
+                        packages.append({
+                            'name': parts[0].strip(),
+                            'version': parts[1].strip()
+                        })
+                
+                return True, packages, ""
+            else:
+                return False, [], f"Failed to get package list: {stderr.strip()}"
+                
+        except subprocess.TimeoutExpired:
+            return False, [], "Package list command timed out"
+        except Exception as e:
+            return False, [], f"Error getting package list: {str(e)}"
+    
+    def verify_package_installation(self, package_name: str) -> bool:
+        """
+        Verify that a specific package is installed.
+        
+        Args:
+            package_name: Name of the package to verify
+        
+        Returns:
+            bool: True if package is installed
+        """
+        if not self.is_chocolatey_installed():
+            return False
+        
+        try:
+            return_code, stdout, stderr = run_command_with_timeout(
+                f"choco list {package_name} --local-only --exact --limit-output",
+                timeout=20
+            )
+            
+            if return_code == 0:
+                lines = stdout.splitlines()
+                for line in lines:
+                    if line.strip().lower().startswith(package_name.lower() + "|"):
+                        return True
+            
+            return False
+            
+        except Exception:
+            return False
+
+
+class EnhancedChocolateyManager(ChocolateyManager):
+    """
+    Enhanced Chocolatey package manager operations with detailed error reporting.
+    
+    This class provides methods for checking Chocolatey installation status,
+    installing Chocolatey, and performing basic Chocolatey operations with
+    comprehensive error logging.
+    """
+    
+    def __init__(self):
+        super().__init__()
+    
+    def test_chocolatey_functionality(self) -> Tuple[bool, str]:
+        """
         Test basic Chocolatey functionality with enhanced error reporting.
         
         Returns:
@@ -83,7 +230,7 @@ class EnhancedChocolateyManager:
         # Test 1: Basic version check
         try:
             return_code, stdout, stderr = run_command_with_timeout(
-                "choco --version",
+                "choco --version", 
                 timeout=15
             )
             

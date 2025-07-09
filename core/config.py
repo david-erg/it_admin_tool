@@ -8,11 +8,14 @@ including user settings, software presets, and application defaults.
 import json
 from pathlib import Path
 from typing import Dict, List, Any, Optional
+from datetime import datetime
 
 from .constants import (
     SETTINGS_FILE,
     PRESETS_FILE, 
-    DEFAULT_PRESETS
+    DEFAULT_PRESETS,
+    DEFAULT_WINDOW_WIDTH,
+    DEFAULT_WINDOW_HEIGHT
 )
 from .utils import get_application_path
 
@@ -34,15 +37,20 @@ class ConfigManager:
         # Default settings
         self._default_settings = {
             "dark_mode": False,
-            "window_width": 1200,
-            "window_height": 800,
+            "window_width": DEFAULT_WINDOW_WIDTH,
+            "window_height": DEFAULT_WINDOW_HEIGHT,
             "window_maximized": False,
             "last_preset_used": "",
             "auto_refresh_system_info": True,
             "confirm_package_installation": True,
             "confirm_bloatware_removal": True,
             "search_limit": 100,
-            "command_timeout": 30
+            "command_timeout": 30,
+            "auto_save_settings": True,
+            "log_level": "INFO",
+            "export_format": "csv",
+            "backup_before_operations": True,
+            "theme": "light"
         }
         
         self._settings: Dict[str, Any] = {}
@@ -84,8 +92,17 @@ class ConfigManager:
             bool: True if saved successfully, False otherwise
         """
         try:
+            # Add metadata
+            settings_with_metadata = {
+                "metadata": {
+                    "last_saved": datetime.now().isoformat(),
+                    "version": "2.1"
+                },
+                "settings": self._settings
+            }
+            
             with open(self.settings_file, 'w', encoding='utf-8') as f:
-                json.dump(self._settings, f, indent=2)
+                json.dump(settings_with_metadata, f, indent=2)
             return True
             
         except Exception as e:
@@ -114,6 +131,10 @@ class ConfigManager:
             value: Setting value
         """
         self._settings[key] = value
+        
+        # Auto-save if enabled
+        if self.get_setting("auto_save_settings", True):
+            self.save_settings()
     
     def get_all_settings(self) -> Dict[str, Any]:
         """
@@ -127,6 +148,23 @@ class ConfigManager:
     def reset_settings(self) -> None:
         """Reset all settings to defaults."""
         self._settings = self._default_settings.copy()
+        self.save_settings()
+    
+    def update_settings(self, new_settings: Dict[str, Any]) -> bool:
+        """
+        Update multiple settings at once.
+        
+        Args:
+            new_settings: Dictionary of settings to update
+        
+        Returns:
+            bool: True if updated successfully
+        """
+        try:
+            self._settings.update(new_settings)
+            return self.save_settings()
+        except Exception:
+            return False
     
     # Presets Management
     def load_presets(self) -> Dict[str, List[str]]:
@@ -136,7 +174,7 @@ class ConfigManager:
         If the presets file doesn't exist, creates it with default presets.
         
         Returns:
-            Dict[str, List[str]]: Loaded presets (returns package lists, not full objects)
+            Dict[str, List[str]]: Loaded presets
         """
         try:
             if not self.presets_file.exists():
@@ -144,7 +182,13 @@ class ConfigManager:
             
             with open(self.presets_file, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-                raw_presets = config.get("presets", {})
+                
+                # Handle both old and new format
+                if "presets" in config:
+                    raw_presets = config["presets"]
+                else:
+                    # Old format: entire file is presets
+                    raw_presets = config
                 
                 # Convert presets to simple format (name -> package list)
                 self._presets = {}
@@ -175,7 +219,15 @@ class ConfigManager:
             bool: True if saved successfully, False otherwise
         """
         try:
-            config = {"presets": self._presets}
+            config = {
+                "metadata": {
+                    "last_saved": datetime.now().isoformat(),
+                    "version": "2.1",
+                    "total_presets": len(self._presets)
+                },
+                "presets": self._presets
+            }
+            
             with open(self.presets_file, 'w', encoding='utf-8') as f:
                 json.dump(config, f, indent=4)
             return True
@@ -203,19 +255,7 @@ class ConfigManager:
         Returns:
             Optional[List[str]]: Preset packages or None if not found
         """
-        preset_data = self._presets.get(name)
-        if preset_data is None:
-            return None
-        
-        # Handle both old format (simple list) and new format (object with packages array)
-        if isinstance(preset_data, list):
-            # Old format: preset is directly a list of packages
-            return preset_data
-        elif isinstance(preset_data, dict):
-            # New format: preset is an object with packages array
-            return preset_data.get("packages", [])
-        else:
-            return None
+        return self._presets.get(name)
     
     def add_preset(self, name: str, packages: List[str]) -> bool:
         """
@@ -252,14 +292,50 @@ class ConfigManager:
         except Exception:
             return False
     
+    def update_preset(self, name: str, packages: List[str]) -> bool:
+        """
+        Update an existing preset.
+        
+        Args:
+            name: Preset name
+            packages: New list of packages
+        
+        Returns:
+            bool: True if updated successfully
+        """
+        if name in self._presets:
+            return self.add_preset(name, packages)
+        return False
+    
+    def preset_exists(self, name: str) -> bool:
+        """
+        Check if a preset exists.
+        
+        Args:
+            name: Preset name
+        
+        Returns:
+            bool: True if preset exists
+        """
+        return name in self._presets
+    
     def get_preset_names(self) -> List[str]:
         """
         Get list of all preset names.
         
         Returns:
-            List[str]: List of preset names
+            List[str]: List of preset names sorted alphabetically
         """
-        return list(self._presets.keys())
+        return sorted(list(self._presets.keys()))
+    
+    def get_preset_count(self) -> int:
+        """
+        Get the number of presets.
+        
+        Returns:
+            int: Number of presets
+        """
+        return len(self._presets)
     
     def create_default_presets_file(self) -> bool:
         """
@@ -269,14 +345,39 @@ class ConfigManager:
             bool: True if created successfully, False otherwise
         """
         try:
-            default_config = {"presets": DEFAULT_PRESETS}
-            with open(self.presets_file, 'w', encoding='utf-8') as f:
-                json.dump(default_config, f, indent=4)
-            return True
+            self._presets = DEFAULT_PRESETS.copy()
+            return self.save_presets()
             
         except Exception as e:
             print(f"Warning: Could not create default presets config: {e}")
             return False
+    
+    def import_presets_from_dict(self, presets_dict: Dict[str, List[str]], 
+                                overwrite: bool = False) -> Tuple[int, int]:
+        """
+        Import presets from a dictionary.
+        
+        Args:
+            presets_dict: Dictionary of presets to import
+            overwrite: Whether to overwrite existing presets
+        
+        Returns:
+            Tuple[int, int]: (imported_count, skipped_count)
+        """
+        imported = 0
+        skipped = 0
+        
+        for name, packages in presets_dict.items():
+            if name in self._presets and not overwrite:
+                skipped += 1
+            else:
+                self._presets[name] = packages.copy()
+                imported += 1
+        
+        if imported > 0:
+            self.save_presets()
+        
+        return imported, skipped
     
     # Theme Management
     def is_dark_mode(self) -> bool:
@@ -296,18 +397,26 @@ class ConfigManager:
             enabled: Whether to enable dark mode
         """
         self.set_setting("dark_mode", enabled)
-        self.save_settings()
     
-    def toggle_dark_mode(self) -> bool:
+    def get_theme(self) -> str:
         """
-        Toggle dark mode setting.
+        Get current theme name.
         
         Returns:
-            bool: New dark mode state
+            str: Current theme name
         """
-        new_state = not self.is_dark_mode()
-        self.set_dark_mode(new_state)
-        return new_state
+        return self.get_setting("theme", "light")
+    
+    def set_theme(self, theme_name: str) -> None:
+        """
+        Set the current theme.
+        
+        Args:
+            theme_name: Name of the theme to set
+        """
+        self.set_setting("theme", theme_name)
+        # Update dark mode setting based on theme
+        self.set_setting("dark_mode", theme_name.lower() == "dark")
     
     # Window State Management
     def get_window_geometry(self) -> Dict[str, int]:
@@ -318,8 +427,8 @@ class ConfigManager:
             Dict[str, int]: Window geometry (width, height, maximized)
         """
         return {
-            "width": self.get_setting("window_width", 1200),
-            "height": self.get_setting("window_height", 800),
+            "width": self.get_setting("window_width", DEFAULT_WINDOW_WIDTH),
+            "height": self.get_setting("window_height", DEFAULT_WINDOW_HEIGHT),
             "maximized": self.get_setting("window_maximized", False)
         }
     
@@ -329,45 +438,77 @@ class ConfigManager:
         
         Args:
             width: Window width
-            height: Window height 
+            height: Window height
             maximized: Whether window is maximized
         """
         self.set_setting("window_width", width)
         self.set_setting("window_height", height)
         self.set_setting("window_maximized", maximized)
-        self.save_settings()
     
-    # Validation
-    def validate_preset(self, packages: List[str]) -> bool:
+    # Utility Methods
+    def reset_to_defaults(self) -> bool:
         """
-        Validate a preset's package list.
-        
-        Args:
-            packages: List of package names to validate
+        Reset both settings and presets to defaults.
         
         Returns:
-            bool: True if preset is valid
+            bool: True if reset successfully
         """
-        if not isinstance(packages, list):
+        try:
+            self.reset_settings()
+            self._presets = DEFAULT_PRESETS.copy()
+            return self.save_presets()
+        except Exception:
             return False
-        
-        if len(packages) == 0:
-            return False
-        
-        # Check that all items are strings
-        for package in packages:
-            if not isinstance(package, str) or not package.strip():
-                return False
-        
-        return True
     
-    def cleanup_settings(self) -> None:
-        """Remove any invalid or outdated settings."""
-        # Remove settings that are no longer valid
-        valid_keys = set(self._default_settings.keys())
-        current_keys = set(self._settings.keys())
+    def get_config_info(self) -> Dict[str, Any]:
+        """
+        Get information about the current configuration.
         
-        for key in current_keys - valid_keys:
-            del self._settings[key]
+        Returns:
+            Dict[str, Any]: Configuration information
+        """
+        return {
+            "settings_file": str(self.settings_file),
+            "presets_file": str(self.presets_file),
+            "settings_count": len(self._settings),
+            "presets_count": len(self._presets),
+            "settings_file_exists": self.settings_file.exists(),
+            "presets_file_exists": self.presets_file.exists(),
+            "app_path": str(self.app_path)
+        }
+    
+    def validate_config_files(self) -> Dict[str, bool]:
+        """
+        Validate configuration files.
         
-        self.save_settings()
+        Returns:
+            Dict[str, bool]: Validation results
+        """
+        results = {
+            "settings_valid": False,
+            "presets_valid": False,
+            "settings_readable": False,
+            "presets_readable": False
+        }
+        
+        # Check settings file
+        try:
+            if self.settings_file.exists():
+                with open(self.settings_file, 'r', encoding='utf-8') as f:
+                    json.load(f)
+                results["settings_valid"] = True
+                results["settings_readable"] = True
+        except Exception:
+            pass
+        
+        # Check presets file
+        try:
+            if self.presets_file.exists():
+                with open(self.presets_file, 'r', encoding='utf-8') as f:
+                    json.load(f)
+                results["presets_valid"] = True
+                results["presets_readable"] = True
+        except Exception:
+            pass
+        
+        return results

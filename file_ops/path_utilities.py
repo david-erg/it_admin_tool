@@ -252,12 +252,12 @@ class PathUtilities:
             return Path(sys.executable).parent
         else:
             # Running as Python script
-            return Path(__file__).parent
+            return Path(__file__).parent.parent
     
     @staticmethod
     def get_special_folder(folder: SpecialFolder) -> Optional[Path]:
         """
-        Get path to a Windows special folder
+        Get the path to a Windows special folder
         
         Args:
             folder: SpecialFolder enum value
@@ -266,31 +266,35 @@ class PathUtilities:
             Path to the special folder or None if not found
         """
         try:
-            if folder == SpecialFolder.PUBLIC_DESKTOP:
-                public_path = os.environ.get('PUBLIC', 'C:\\Users\\Public')
-                return Path(public_path) / 'Desktop'
+            if folder == SpecialFolder.DESKTOP:
+                desktop = os.path.join(os.environ.get('USERPROFILE', ''), 'Desktop')
+                return Path(desktop)
             
-            elif folder == SpecialFolder.PUBLIC_DOCUMENTS:
-                public_path = os.environ.get('PUBLIC', 'C:\\Users\\Public')
-                return Path(public_path) / 'Documents'
-            
-            elif folder == SpecialFolder.DESKTOP:
-                return Path.home() / 'Desktop'
+            elif folder == SpecialFolder.PUBLIC_DESKTOP:
+                return Path('C:\\Users\\Public\\Desktop')
             
             elif folder == SpecialFolder.DOCUMENTS:
-                return Path.home() / 'Documents'
+                docs = os.path.join(os.environ.get('USERPROFILE', ''), 'Documents')
+                return Path(docs)
+            
+            elif folder == SpecialFolder.PUBLIC_DOCUMENTS:
+                return Path('C:\\Users\\Public\\Documents')
             
             elif folder == SpecialFolder.DOWNLOADS:
-                return Path.home() / 'Downloads'
+                downloads = os.path.join(os.environ.get('USERPROFILE', ''), 'Downloads')
+                return Path(downloads)
             
             elif folder == SpecialFolder.PICTURES:
-                return Path.home() / 'Pictures'
+                pictures = os.path.join(os.environ.get('USERPROFILE', ''), 'Pictures')
+                return Path(pictures)
             
             elif folder == SpecialFolder.VIDEOS:
-                return Path.home() / 'Videos'
+                videos = os.path.join(os.environ.get('USERPROFILE', ''), 'Videos')
+                return Path(videos)
             
             elif folder == SpecialFolder.MUSIC:
-                return Path.home() / 'Music'
+                music = os.path.join(os.environ.get('USERPROFILE', ''), 'Music')
+                return Path(music)
             
             elif folder == SpecialFolder.APPDATA:
                 appdata = os.environ.get('APPDATA')
@@ -382,74 +386,59 @@ class PathUtilities:
         if not path.exists():
             return path
         
-        # Split the path into name and extension
-        parent = path.parent
+        counter = 1
         stem = path.stem
         suffix = path.suffix
+        parent = path.parent
         
-        counter = 1
         while True:
             new_name = f"{stem}_{counter}{suffix}"
             new_path = parent / new_name
-            
             if not new_path.exists():
                 return new_path
-            
             counter += 1
-            
-            # Prevent infinite loop
-            if counter > 9999:
+            if counter > 9999:  # Prevent infinite loop
                 break
         
         return path
     
     @staticmethod
-    def get_relative_path(target_path: Union[str, Path], 
-                         base_path: Union[str, Path]) -> Optional[Path]:
+    def copy_with_backup(source: Union[str, Path], dest: Union[str, Path], 
+                        backup_suffix: str = ".backup") -> bool:
         """
-        Get relative path from base to target
+        Copy a file, creating a backup of the destination if it exists
         
         Args:
-            target_path: Target path
-            base_path: Base path to calculate relative to
+            source: Source file path
+            dest: Destination file path
+            backup_suffix: Suffix to add to backup file
             
         Returns:
-            Relative path or None if not possible
+            True if copy was successful
         """
         try:
-            target = Path(target_path).resolve()
-            base = Path(base_path).resolve()
-            return target.relative_to(base)
-        except (ValueError, OSError):
-            return None
-    
-    @staticmethod
-    def is_subdirectory(child_path: Union[str, Path], 
-                       parent_path: Union[str, Path]) -> bool:
-        """
-        Check if one path is a subdirectory of another
-        
-        Args:
-            child_path: Potential child path
-            parent_path: Potential parent path
+            import shutil
             
-        Returns:
-            True if child_path is under parent_path
-        """
-        try:
-            child = Path(child_path).resolve()
-            parent = Path(parent_path).resolve()
+            source_path = Path(source)
+            dest_path = Path(dest)
             
-            # Check if child is under parent
-            child.relative_to(parent)
+            # Create backup if destination exists
+            if dest_path.exists():
+                backup_path = dest_path.with_suffix(dest_path.suffix + backup_suffix)
+                backup_path = PathUtilities.get_unique_path(backup_path)
+                shutil.copy2(dest_path, backup_path)
+            
+            # Perform the copy
+            shutil.copy2(source_path, dest_path)
             return True
-        except (ValueError, OSError):
+            
+        except Exception:
             return False
     
     @staticmethod
     def get_directory_size(directory: Union[str, Path]) -> Tuple[int, int]:
         """
-        Calculate total size and file count of a directory
+        Calculate the total size and file count of a directory
         
         Args:
             directory: Directory to analyze
@@ -501,6 +490,83 @@ class PathUtilities:
             size_index += 1
         
         return f"{size:.1f} {size_names[size_index]}"
+    
+    @staticmethod
+    def get_disk_usage(path: Union[str, Path]) -> Tuple[int, int, int]:
+        """
+        Get disk usage statistics for a path
+        
+        Args:
+            path: Path to check disk usage for
+            
+        Returns:
+            Tuple of (total_bytes, used_bytes, free_bytes)
+        """
+        try:
+            if platform.system() == "Windows":
+                import ctypes
+                free_bytes = ctypes.c_ulonglong(0)
+                total_bytes = ctypes.c_ulonglong(0)
+                
+                ctypes.windll.kernel32.GetDiskFreeSpaceExW(
+                    ctypes.c_wchar_p(str(path)),
+                    ctypes.pointer(free_bytes),
+                    ctypes.pointer(total_bytes),
+                    None
+                )
+                
+                total = total_bytes.value
+                free = free_bytes.value
+                used = total - free
+                
+                return total, used, free
+            else:
+                # Unix-like systems
+                statvfs = os.statvfs(path)
+                total = statvfs.f_frsize * statvfs.f_blocks
+                free = statvfs.f_frsize * statvfs.f_available
+                used = total - free
+                
+                return total, used, free
+                
+        except Exception:
+            return 0, 0, 0
+    
+    @staticmethod
+    def find_files_by_pattern(directory: Union[str, Path], pattern: str, 
+                             recursive: bool = True) -> List[Path]:
+        """
+        Find files matching a pattern in a directory
+        
+        Args:
+            directory: Directory to search in
+            pattern: File pattern (e.g., "*.txt")
+            recursive: Whether to search recursively
+            
+        Returns:
+            List of matching file paths
+        """
+        import fnmatch
+        
+        matches = []
+        try:
+            path = Path(directory)
+            if not path.is_dir():
+                return matches
+            
+            if recursive:
+                for item in path.rglob('*'):
+                    if item.is_file() and fnmatch.fnmatch(item.name, pattern):
+                        matches.append(item)
+            else:
+                for item in path.iterdir():
+                    if item.is_file() and fnmatch.fnmatch(item.name, pattern):
+                        matches.append(item)
+            
+            return sorted(matches)
+            
+        except Exception:
+            return matches
 
 
 # Convenience functions
@@ -548,3 +614,37 @@ def validate_and_sanitize_path(path_str: str) -> Tuple[bool, str, Optional[str]]
         
     except Exception:
         return False, error, None
+
+
+def ensure_safe_path(path_str: str, base_dir: Optional[Union[str, Path]] = None) -> Path:
+    """
+    Ensure a path is safe and within allowed boundaries
+    
+    Args:
+        path_str: Path string to make safe
+        base_dir: Base directory to constrain path within
+        
+    Returns:
+        Safe path object
+    """
+    try:
+        path = Path(path_str).resolve()
+        
+        if base_dir:
+            base_path = Path(base_dir).resolve()
+            
+            # Ensure path is within base directory
+            try:
+                path.relative_to(base_path)
+            except ValueError:
+                # Path is outside base directory, constrain it
+                path = base_path / Path(path_str).name
+        
+        return path
+        
+    except Exception:
+        # Return a safe fallback
+        if base_dir:
+            return Path(base_dir) / "safe_file"
+        else:
+            return Path("safe_file")

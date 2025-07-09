@@ -7,13 +7,14 @@ Supports various copy modes, progress tracking, and error handling.
 
 import os
 import shutil
+import hashlib
 import platform
 from pathlib import Path
 from typing import List, Dict, Optional, Callable, Tuple, Union, Set
 from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime
-import stat
+import time
 
 from .path_utilities import PathUtilities, PathValidator, SpecialFolder
 
@@ -179,145 +180,18 @@ class FolderManager:
         except Exception as e:
             return {"error": str(e)}
     
-    def _should_include_file(self, file_path: Path, file_filter: Optional[FileFilter]) -> bool:
-        """
-        Check if a file should be included based on filter criteria
-        
-        Args:
-            file_path: Path to the file
-            file_filter: Filter criteria
-            
-        Returns:
-            True if file should be included
-        """
-        if file_filter is None:
-            return True
-        
-        try:
-            # Check hidden files
-            if not file_filter.include_hidden and self._is_hidden_file(file_path):
-                return False
-            
-            # Check system files
-            if not file_filter.include_system and self._is_system_file(file_path):
-                return False
-            
-            # Check file size
-            if file_path.is_file():
-                file_size = file_path.stat().st_size
-                
-                if file_filter.min_size is not None and file_size < file_filter.min_size:
-                    return file_filter.filter_type == FilterType.EXCLUDE
-                
-                if file_filter.max_size is not None and file_size > file_filter.max_size:
-                    return file_filter.filter_type == FilterType.EXCLUDE
-            
-            # Check extensions
-            if file_filter.extensions:
-                file_ext = file_path.suffix.lower()
-                ext_match = file_ext in file_filter.extensions
-                
-                if file_filter.filter_type == FilterType.INCLUDE:
-                    if not ext_match:
-                        return False
-                else:  # EXCLUDE
-                    if ext_match:
-                        return False
-            
-            # Check patterns
-            if file_filter.patterns:
-                import fnmatch
-                pattern_match = any(fnmatch.fnmatch(file_path.name, pattern) 
-                                  for pattern in file_filter.patterns)
-                
-                if file_filter.filter_type == FilterType.INCLUDE:
-                    if not pattern_match:
-                        return False
-                else:  # EXCLUDE
-                    if pattern_match:
-                        return False
-            
-            return True
-            
-        except Exception:
-            return True  # Include file if we can't determine filter criteria
-    
-    def _is_hidden_file(self, file_path: Path) -> bool:
-        """Check if a file is hidden"""
-        try:
-            if platform.system() == "Windows":
-                return bool(file_path.stat().st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN)
-            else:
-                return file_path.name.startswith('.')
-        except:
-            return False
-    
-    def _is_system_file(self, file_path: Path) -> bool:
-        """Check if a file is a system file"""
-        try:
-            if platform.system() == "Windows":
-                return bool(file_path.stat().st_file_attributes & stat.FILE_ATTRIBUTE_SYSTEM)
-            else:
-                return False  # No standard system file attribute on Unix-like systems
-        except:
-            return False
-    
-    def _resolve_conflict(self, source_path: Path, dest_path: Path, 
-                         resolution: ConflictResolution) -> Tuple[bool, Optional[Path]]:
-        """
-        Resolve file conflict based on resolution strategy
-        
-        Args:
-            source_path: Source file path
-            dest_path: Destination file path
-            resolution: Conflict resolution strategy
-            
-        Returns:
-            Tuple of (should_copy, final_destination_path)
-        """
-        if not dest_path.exists():
-            return True, dest_path
-        
-        if resolution == ConflictResolution.SKIP:
-            return False, None
-        
-        elif resolution == ConflictResolution.OVERWRITE:
-            return True, dest_path
-        
-        elif resolution == ConflictResolution.RENAME:
-            unique_path = self.path_utilities.get_unique_path(dest_path)
-            return True, unique_path
-        
-        elif resolution == ConflictResolution.NEWER:
-            try:
-                source_mtime = source_path.stat().st_mtime
-                dest_mtime = dest_path.stat().st_mtime
-                return source_mtime > dest_mtime, dest_path
-            except:
-                return True, dest_path  # Default to copy if we can't compare times
-        
-        elif resolution == ConflictResolution.LARGER:
-            try:
-                source_size = source_path.stat().st_size
-                dest_size = dest_path.stat().st_size
-                return source_size > dest_size, dest_path
-            except:
-                return True, dest_path  # Default to copy if we can't compare sizes
-        
-        else:  # ASK - for now, default to skip
-            return False, None
-    
     def copy_folder_contents(self, operation: FolderOperation) -> CopyResult:
         """
-        Copy folder contents based on operation configuration
+        Copy folder contents with comprehensive options
         
         Args:
-            operation: FolderOperation defining the copy parameters
+            operation: FolderOperation configuration
             
         Returns:
             CopyResult with operation results
         """
-        start_time = datetime.now()
+        start_time = time.time()
+        
         result = CopyResult(
             success=False,
             source_path=operation.source_path,
@@ -335,12 +209,11 @@ class FolderManager:
                 result.errors.append(f"Source path is not a directory: {operation.source_path}")
                 return result
             
-            # Create destination directory if needed
+            # Create destination if needed
             if operation.create_destination:
-                if not self.path_utilities.ensure_directory_exists(operation.destination_path):
-                    result.errors.append(f"Could not create destination directory: {operation.destination_path}")
-                    return result
-                result.directories_created += 1
+                operation.destination_path.mkdir(parents=True, exist_ok=True)
+                if operation.destination_path.is_dir() and not operation.destination_path.exists():
+                    result.directories_created += 1
             
             # Validate destination path
             if not operation.destination_path.exists():
@@ -355,15 +228,19 @@ class FolderManager:
             self.progress_callback(f"Source: {operation.source_path}")
             self.progress_callback(f"Destination: {operation.destination_path}")
             
-            # Process all items in source directory
+            # Process all files and directories
             for item in operation.source_path.rglob('*'):
-                result.files_processed += 1
+                if item == operation.source_path:
+                    continue  # Skip the source directory itself
                 
                 try:
                     # Calculate relative path
                     rel_path = item.relative_to(operation.source_path)
                     dest_item = operation.destination_path / rel_path
                     
+                    result.files_processed += 1
+                    
+                    # Handle directories
                     if item.is_dir():
                         # Create directory structure
                         if not dest_item.exists():
@@ -372,7 +249,7 @@ class FolderManager:
                         continue
                     
                     if not item.is_file():
-                        continue  # Skip special files
+                        continue  # Skip special files (symlinks, etc.)
                     
                     # Apply file filter
                     if not self._should_include_file(item, operation.file_filter):
@@ -394,136 +271,316 @@ class FolderManager:
                         continue
                     
                     # Perform the copy operation
-                    if operation.copy_mode == CopyMode.COPY:
-                        shutil.copy2(item, final_dest)
-                    elif operation.copy_mode == CopyMode.MOVE:
-                        shutil.move(item, final_dest)
+                    success = self._copy_single_file(
+                        item, final_dest, operation
+                    )
+                    
+                    if success:
+                        result.files_copied += 1
+                        result.total_bytes_copied += item.stat().st_size
+                        
+                        # Verify copy if requested
+                        if operation.verify_copy:
+                            if not self._verify_file_copy(item, final_dest):
+                                result.warnings.append(f"Copy verification failed for: {rel_path}")
                     else:
-                        # For sync and merge, use copy2
-                        shutil.copy2(item, final_dest)
-                    
-                    # Preserve permissions if requested
-                    if operation.preserve_permissions:
-                        try:
-                            shutil.copystat(item, final_dest)
-                        except:
-                            result.warnings.append(f"Could not preserve permissions for: {rel_path}")
-                    
-                    # Verify copy if requested
-                    if operation.verify_copy:
-                        if not self._verify_file_copy(item, final_dest):
-                            result.warnings.append(f"Copy verification failed for: {rel_path}")
-                    
-                    result.files_copied += 1
-                    result.total_bytes_copied += item.stat().st_size
-                    
-                    # Progress update for large operations
-                    if result.files_processed % 100 == 0:
-                        self.progress_callback(f"Processed {result.files_processed} files...")
+                        result.files_failed += 1
+                        result.failed_files.append(str(rel_path))
                 
                 except Exception as e:
                     result.files_failed += 1
-                    error_msg = f"Failed to copy {rel_path}: {str(e)}"
-                    result.errors.append(error_msg)
                     result.failed_files.append(str(rel_path))
-                    self.progress_callback(f"ERROR: {error_msg}")
+                    result.errors.append(f"Error processing {rel_path}: {str(e)}")
             
-            # Calculate final results
-            end_time = datetime.now()
-            result.total_time_seconds = (end_time - start_time).total_seconds()
-            result.success = result.files_failed == 0
+            # Calculate total time
+            result.total_time_seconds = time.time() - start_time
             
-            # Final status report
-            self.progress_callback(f"Operation completed in {result.total_time_seconds:.2f} seconds")
-            self.progress_callback(f"Files copied: {result.files_copied}")
-            self.progress_callback(f"Files skipped: {result.files_skipped}")
-            self.progress_callback(f"Files failed: {result.files_failed}")
-            self.progress_callback(f"Total bytes copied: {self.path_utilities.format_file_size(result.total_bytes_copied)}")
+            # Determine overall success
+            result.success = result.files_failed == 0 and len(result.errors) == 0
             
-            return result
+            # Log results
+            self.progress_callback(f"Operation completed:")
+            self.progress_callback(f"  Files processed: {result.files_processed}")
+            self.progress_callback(f"  Files copied: {result.files_copied}")
+            self.progress_callback(f"  Files skipped: {result.files_skipped}")
+            self.progress_callback(f"  Files failed: {result.files_failed}")
+            self.progress_callback(f"  Directories created: {result.directories_created}")
+            self.progress_callback(f"  Total time: {result.total_time_seconds:.2f} seconds")
             
+            if result.errors:
+                self.progress_callback(f"  Errors: {len(result.errors)}")
+                
         except Exception as e:
             result.errors.append(f"Operation failed: {str(e)}")
-            self.progress_callback(f"CRITICAL ERROR: {str(e)}")
-            return result
+            result.total_time_seconds = time.time() - start_time
+        
+        return result
     
-    def _verify_file_copy(self, source_path: Path, dest_path: Path) -> bool:
+    def _copy_single_file(self, source: Path, dest: Path, operation: FolderOperation) -> bool:
         """
-        Verify that a file was copied correctly by comparing sizes
+        Copy a single file with proper error handling
         
         Args:
-            source_path: Source file path
-            dest_path: Destination file path
+            source: Source file path
+            dest: Destination file path
+            operation: Operation configuration
             
         Returns:
-            True if files match
+            bool: True if copy successful
         """
         try:
-            if not dest_path.exists():
-                return False
+            if operation.copy_mode == CopyMode.COPY:
+                shutil.copy2(source, dest)
+            elif operation.copy_mode == CopyMode.MOVE:
+                shutil.move(str(source), str(dest))
+            else:
+                # For sync and merge, use copy2
+                shutil.copy2(source, dest)
             
-            source_size = source_path.stat().st_size
-            dest_size = dest_path.stat().st_size
+            # Preserve permissions if requested
+            if operation.preserve_permissions:
+                try:
+                    shutil.copystat(source, dest)
+                except Exception:
+                    pass  # Non-critical error
             
-            return source_size == dest_size
+            return True
             
         except Exception:
             return False
     
-    def copy_to_public_desktop(self, source_folder: Union[str, Path]) -> CopyResult:
+    def _should_include_file(self, file_path: Path, file_filter: Optional[FileFilter]) -> bool:
         """
-        Copy folder contents to the public desktop (convenience method)
+        Check if a file should be included based on filter criteria
         
         Args:
-            source_folder: Source folder to copy from
+            file_path: Path to the file
+            file_filter: Filter criteria
             
         Returns:
-            CopyResult with operation results
+            True if file should be included
+        """
+        if file_filter is None:
+            return True
+        
+        try:
+            # Check hidden files
+            if not file_filter.include_hidden and self._is_hidden_file(file_path):
+                return file_filter.filter_type == FilterType.EXCLUDE
+            
+            # Check system files
+            if not file_filter.include_system and self._is_system_file(file_path):
+                return file_filter.filter_type == FilterType.EXCLUDE
+            
+            # Check file size
+            if file_path.is_file():
+                file_size = file_path.stat().st_size
+                
+                if file_filter.min_size is not None and file_size < file_filter.min_size:
+                    return file_filter.filter_type == FilterType.EXCLUDE
+                
+                if file_filter.max_size is not None and file_size > file_filter.max_size:
+                    return file_filter.filter_type == FilterType.EXCLUDE
+            
+            # Check file patterns and extensions
+            matches_pattern = False
+            
+            # Check extensions
+            if file_filter.extensions:
+                file_ext = file_path.suffix.lower()
+                matches_pattern = file_ext in file_filter.extensions
+            
+            # Check patterns
+            if file_filter.patterns and not matches_pattern:
+                import fnmatch
+                for pattern in file_filter.patterns:
+                    if fnmatch.fnmatch(file_path.name.lower(), pattern.lower()):
+                        matches_pattern = True
+                        break
+            
+            # If no patterns/extensions specified, include by default
+            if not file_filter.patterns and not file_filter.extensions:
+                matches_pattern = True
+            
+            # Apply filter logic
+            if file_filter.filter_type == FilterType.INCLUDE:
+                return matches_pattern
+            else:  # EXCLUDE
+                return not matches_pattern
+                
+        except Exception:
+            # On error, include the file
+            return True
+    
+    def _is_hidden_file(self, file_path: Path) -> bool:
+        """
+        Check if a file is hidden
+        
+        Args:
+            file_path: Path to check
+            
+        Returns:
+            bool: True if file is hidden
         """
         try:
-            source_path = Path(source_folder)
-            public_desktop = self.path_utilities.get_special_folder(SpecialFolder.PUBLIC_DESKTOP)
-            
-            if public_desktop is None:
-                result = CopyResult(
-                    success=False,
-                    source_path=source_path,
-                    destination_path=Path("Unknown"),
-                    operation_type="copy_to_public_desktop"
-                )
-                result.errors.append("Could not locate public desktop folder")
-                return result
-            
-            operation = FolderOperation(
-                source_path=source_path,
-                destination_path=public_desktop,
-                copy_mode=CopyMode.COPY,
-                conflict_resolution=ConflictResolution.OVERWRITE,
-                create_destination=True
-            )
-            
-            return self.copy_folder_contents(operation)
-            
-        except Exception as e:
-            result = CopyResult(
-                success=False,
-                source_path=Path(str(source_folder)),
-                destination_path=Path("Unknown"),
-                operation_type="copy_to_public_desktop"
-            )
-            result.errors.append(f"Failed to copy to public desktop: {str(e)}")
-            return result
+            if platform.system() == "Windows":
+                # Windows hidden files - use GetFileAttributes
+                import ctypes
+                attrs = ctypes.windll.kernel32.GetFileAttributesW(str(file_path))
+                if attrs == -1:  # INVALID_FILE_ATTRIBUTES
+                    return False
+                FILE_ATTRIBUTE_HIDDEN = 0x02
+                return bool(attrs & FILE_ATTRIBUTE_HIDDEN)
+            else:
+                # Unix-like systems - files starting with dot
+                return file_path.name.startswith('.')
+        except Exception:
+            # Fallback: check if filename starts with dot
+            return file_path.name.startswith('.')
     
-    def synchronize_folders(self, source_path: Union[str, Path], 
-                           dest_path: Union[str, Path],
-                           bidirectional: bool = False) -> CopyResult:
+    def _is_system_file(self, file_path: Path) -> bool:
         """
-        Synchronize two folders (one-way or bidirectional)
+        Check if a file is a system file
+        
+        Args:
+            file_path: Path to check
+            
+        Returns:
+            bool: True if file is a system file
+        """
+        try:
+            if platform.system() == "Windows":
+                # Windows system files - use GetFileAttributes
+                import ctypes
+                attrs = ctypes.windll.kernel32.GetFileAttributesW(str(file_path))
+                if attrs == -1:  # INVALID_FILE_ATTRIBUTES
+                    return False
+                FILE_ATTRIBUTE_SYSTEM = 0x04
+                return bool(attrs & FILE_ATTRIBUTE_SYSTEM)
+            else:
+                # Unix-like systems - check common system directories
+                system_dirs = {'/bin', '/sbin', '/usr/bin', '/usr/sbin', '/sys', '/proc'}
+                return any(str(file_path).startswith(sys_dir) for sys_dir in system_dirs)
+        except Exception:
+            # Fallback: basic system file detection
+            system_extensions = {'.sys', '.dll', '.exe'}
+            return file_path.suffix.lower() in system_extensions
+    
+    def _resolve_conflict(self, source_file: Path, dest_file: Path, 
+                         resolution: ConflictResolution) -> Tuple[bool, Path]:
+        """
+        Resolve file conflicts based on resolution strategy
+        
+        Args:
+            source_file: Source file path
+            dest_file: Destination file path
+            resolution: Conflict resolution strategy
+            
+        Returns:
+            Tuple[bool, Path]: (should_copy, final_destination)
+        """
+        if not dest_file.exists():
+            return True, dest_file
+        
+        try:
+            if resolution == ConflictResolution.SKIP:
+                return False, dest_file
+            
+            elif resolution == ConflictResolution.OVERWRITE:
+                return True, dest_file
+            
+            elif resolution == ConflictResolution.RENAME:
+                # Generate unique filename
+                counter = 1
+                stem = dest_file.stem
+                suffix = dest_file.suffix
+                parent = dest_file.parent
+                
+                while True:
+                    new_name = f"{stem}_{counter}{suffix}"
+                    new_dest = parent / new_name
+                    if not new_dest.exists():
+                        return True, new_dest
+                    counter += 1
+                    if counter > 1000:  # Prevent infinite loop
+                        return False, dest_file
+            
+            elif resolution == ConflictResolution.NEWER:
+                source_mtime = source_file.stat().st_mtime
+                dest_mtime = dest_file.stat().st_mtime
+                return source_mtime > dest_mtime, dest_file
+            
+            elif resolution == ConflictResolution.LARGER:
+                source_size = source_file.stat().st_size
+                dest_size = dest_file.stat().st_size
+                return source_size > dest_size, dest_file
+            
+            elif resolution == ConflictResolution.ASK:
+                # For automated operations, default to skip
+                # In GUI mode, this would show a dialog
+                return False, dest_file
+            
+        except Exception:
+            # On error, skip the file
+            return False, dest_file
+        
+        return False, dest_file
+    
+    def _verify_file_copy(self, source_file: Path, dest_file: Path) -> bool:
+        """
+        Verify that a file was copied correctly by comparing checksums
+        
+        Args:
+            source_file: Original file path
+            dest_file: Copied file path
+            
+        Returns:
+            bool: True if files match
+        """
+        try:
+            # Quick check: file sizes
+            if source_file.stat().st_size != dest_file.stat().st_size:
+                return False
+            
+            # Checksum verification for small files only (< 100MB)
+            if source_file.stat().st_size > 100 * 1024 * 1024:
+                return True  # Skip checksum for large files
+            
+            source_hash = self._calculate_file_hash(source_file)
+            dest_hash = self._calculate_file_hash(dest_file)
+            
+            return source_hash == dest_hash
+            
+        except Exception:
+            return False
+    
+    def _calculate_file_hash(self, file_path: Path) -> str:
+        """
+        Calculate SHA-256 hash of a file
+        
+        Args:
+            file_path: Path to file
+            
+        Returns:
+            str: SHA-256 hash hexdigest
+        """
+        hash_sha256 = hashlib.sha256()
+        try:
+            with open(file_path, "rb") as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hash_sha256.update(chunk)
+            return hash_sha256.hexdigest()
+        except Exception:
+            return ""
+    
+    def sync_folders(self, source_path: Union[str, Path], 
+                    dest_path: Union[str, Path]) -> CopyResult:
+        """
+        Synchronize two folders (one-way sync from source to destination)
         
         Args:
             source_path: Source folder path
             dest_path: Destination folder path
-            bidirectional: If True, sync both ways
             
         Returns:
             CopyResult with sync results
@@ -602,3 +659,46 @@ def quick_copy_folder(source_path: Union[str, Path], dest_path: Union[str, Path]
         create_destination=True
     )
     return manager.copy_folder_contents(operation)
+
+
+def copy_to_public_desktop(source_folder: Union[str, Path], 
+                          progress_callback: Optional[Callable[[str], None]] = None) -> CopyResult:
+    """
+    Copy folder contents to the public desktop
+    
+    Args:
+        source_folder: Source folder to copy from
+        progress_callback: Optional progress callback
+        
+    Returns:
+        CopyResult with operation results
+    """
+    try:
+        # Get public desktop path
+        if platform.system() == "Windows":
+            public_desktop = Path("C:/Users/Public/Desktop")
+        else:
+            # Fallback for non-Windows systems
+            public_desktop = Path.home() / "Desktop"
+        
+        manager = FolderManager(progress_callback)
+        operation = FolderOperation(
+            source_path=Path(source_folder),
+            destination_path=public_desktop,
+            copy_mode=CopyMode.COPY,
+            conflict_resolution=ConflictResolution.SKIP,
+            create_destination=True,
+            preserve_permissions=False  # Don't preserve permissions for desktop
+        )
+        
+        return manager.copy_folder_contents(operation)
+        
+    except Exception as e:
+        # Return error result
+        return CopyResult(
+            success=False,
+            source_path=Path(source_folder),
+            destination_path=Path(""),
+            operation_type="copy_to_public_desktop",
+            errors=[f"Failed to copy to public desktop: {str(e)}"]
+        )

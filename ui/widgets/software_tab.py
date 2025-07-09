@@ -101,11 +101,11 @@ class EnhancedChocolateyManager(ChocolateyManager):
         self.logger = logger
     
     def test_chocolatey_functionality(self) -> tuple[bool, str]:
-        """Enhanced Chocolatey functionality test with detailed logging"""
+        """Enhanced Chocolatey functionality test with detailed logging - FIXED"""
         self.logger.info("Testing Chocolatey functionality...")
         
         if not self.is_chocolatey_installed():
-            msg = "Chocolatey is not installed"
+            msg = "Chocolatey is not installed or not in PATH"
             self.logger.error(msg)
             return False, msg
         
@@ -115,7 +115,7 @@ class EnhancedChocolateyManager(ChocolateyManager):
             from core import run_command_with_timeout
             
             return_code, stdout, stderr = run_command_with_timeout(
-                "choco --version", timeout=15
+                 "choco --version", timeout=15
             )
             self.logger.log_system_command("choco --version", return_code, stdout, stderr)
             
@@ -124,10 +124,10 @@ class EnhancedChocolateyManager(ChocolateyManager):
                 self.logger.error(msg)
                 return False, msg
             
-            # Test 2: List command
+            # Test 2: List command - FIXED: use --localonly instead of --local-only
             self.logger.debug("Testing chocolatey list command...")
             return_code, stdout, stderr = run_command_with_timeout(
-                "choco list chocolatey --exact --local-only", timeout=30
+                "choco list chocolatey --exact", timeout=30
             )
             self.logger.log_system_command("choco list chocolatey", return_code, stdout, stderr)
             
@@ -161,30 +161,31 @@ class EnhancedChocolateyManager(ChocolateyManager):
     
     def check_internet_connectivity(self) -> tuple[bool, str]:
         """Enhanced internet connectivity check with logging"""
-        self.logger.debug("Checking internet connectivity...")
+        self.logger.debug("Testing internet connectivity...")
         
-        try:
-            from core import run_command_with_timeout
-            
-            # Test ping to chocolatey.org
-            return_code, stdout, stderr = run_command_with_timeout(
-                "ping chocolatey.org -n 1", timeout=10
-            )
-            self.logger.log_system_command("ping chocolatey.org", return_code, stdout, stderr)
-            
-            if return_code == 0:
-                msg = "Internet connection available"
-                self.logger.info(msg)
-                return True, msg
-            else:
-                msg = f"Internet ping failed: {stderr}"
-                self.logger.warning(msg)
-                return False, msg
+        test_hosts = ["chocolatey.org", "packages.chocolatey.org", "google.com"]
+        
+        for host in test_hosts:
+            try:
+                from core import run_command_with_timeout
                 
-        except Exception as e:
-            msg = f"Internet connectivity check failed: {str(e)}"
-            self.logger.error(msg)
-            return False, msg
+                return_code, stdout, stderr = run_command_with_timeout(
+                    f"ping {host} -n 1", timeout=10
+                )
+                self.logger.log_system_command(f"ping {host}", return_code, stdout, stderr)
+                
+                if return_code == 0:
+                    msg = f"Internet connection available ({host} reachable)"
+                    self.logger.info(msg)
+                    return True, msg
+                    
+            except Exception as e:
+                self.logger.debug(f"Ping to {host} failed: {str(e)}")
+                continue
+        
+        msg = "Internet connection may be limited - could not reach Chocolatey servers"
+        self.logger.warning(msg)
+        return False, msg
 
 
 class SoftwareTab(QWidget):
@@ -221,53 +222,20 @@ class SoftwareTab(QWidget):
         """Initialize the user interface."""
         layout = QVBoxLayout()
         
-        # Add log file info at the top
-        log_info_layout = QHBoxLayout()
-        log_info_label = QLabel(f"Log file: {self.logger.log_file_path}")
-        log_info_label.setStyleSheet("color: gray; font-size: 10px;")
-        log_open_btn = QPushButton("Open Log File")
-        log_open_btn.setMaximumWidth(100)
-        log_open_btn.clicked.connect(self._open_log_file)
-        log_info_layout.addWidget(log_info_label)
-        log_info_layout.addWidget(log_open_btn)
-        log_info_layout.addStretch()
-        layout.addLayout(log_info_layout)
-        
-        # Presets section
+        # Add sections
         presets_group = self._create_presets_section()
-        layout.addWidget(presets_group, 0)
+        layout.addWidget(presets_group)
         
-        # Search section
         search_group = self._create_search_section()
-        layout.addWidget(search_group, 1)
+        layout.addWidget(search_group)
         
-        # Selected packages section
         selection_group = self._create_selection_section()
-        layout.addWidget(selection_group, 0)
+        layout.addWidget(selection_group)
         
-        # Installation output section
         output_group = self._create_output_section()
-        layout.addWidget(output_group, 0)
+        layout.addWidget(output_group)
         
         self.setLayout(layout)
-    
-    def _open_log_file(self):
-        """Open the log file in default text editor"""
-        try:
-            import platform
-            import subprocess
-            
-            if platform.system() == "Windows":
-                os.startfile(self.logger.log_file_path)
-            elif platform.system() == "Darwin":  # macOS
-                subprocess.run(["open", str(self.logger.log_file_path)])
-            else:  # Linux
-                subprocess.run(["xdg-open", str(self.logger.log_file_path)])
-                
-            self.logger.info("Opened log file in external editor")
-        except Exception as e:
-            self.logger.error(f"Failed to open log file: {str(e)}")
-            QMessageBox.warning(self, "Cannot Open Log", f"Could not open log file: {str(e)}")
     
     def _create_presets_section(self) -> QGroupBox:
         """Create the software presets section."""
@@ -454,16 +422,17 @@ class SoftwareTab(QWidget):
             self.logger.warning("Chocolatey not installed")
         else:
             version = self.chocolatey_manager.get_chocolatey_version()
-            msg = f"✓ Chocolatey is available (version: {version})"
-            self.install_output.append(msg)
-            self.logger.info(f"Chocolatey available: {version}")
+            msg = f"Chocolatey available: {version}"
+            self.logger.info(msg)
             
             # Test functionality on startup
+            self.logger.info("Testing Chocolatey functionality...")
             is_working, test_msg = self.chocolatey_manager.test_chocolatey_functionality()
             if not is_working:
-                error_msg = f"⚠ Chocolatey functionality test failed: {test_msg}"
-                self.install_output.append(error_msg)
-                self.logger.error(f"Chocolatey startup test failed: {test_msg}")
+                error_msg = f"Chocolatey startup test failed: {test_msg}"
+                self.logger.error(error_msg)
+            else:
+                self.logger.info(f"Chocolatey is working properly (version: {version})")
     
     def _log_and_display(self, message: str, level: str = "info"):
         """Log message and display in UI"""

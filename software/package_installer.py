@@ -754,7 +754,7 @@ class PackageInstallWorker(BaseWorker):
         if len(successful) > 0:
             self.emit_progress("")
             self.emit_progress("Note: Some installations may require a system restart to take effect.")
-            self.emit_progress("You can verify installations by running: choco list --local-only")
+            self.emit_progress("You can verify installations by running: choco list")
         
         self.emit_progress("")
         self.emit_progress("=== INSTALLATION PROCESS COMPLETED ===")

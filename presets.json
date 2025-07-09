@@ -1,0 +1,66 @@
+{
+    "metadata": {
+        "last_saved": "2025-07-09T15:09:16.090327",
+        "version": "2.1",
+        "total_presets": 6
+    },
+    "presets": {
+        "Basic Office Setup": [
+            "googlechrome",
+            "firefox",
+            "7zip",
+            "notepadplusplus",
+            "vlc",
+            "adobe-acrobat-reader-dc",
+            "microsoft-office-deployment"
+        ],
+        "Developer Essentials": [
+            "git",
+            "vscode",
+            "python",
+            "nodejs",
+            "docker-desktop",
+            "postman",
+            "github-desktop",
+            "visualstudio2022community"
+        ],
+        "System Administration": [
+            "sysinternals",
+            "putty",
+            "wireshark",
+            "teamviewer",
+            "powershell-core",
+            "openssh",
+            "curl",
+            "wget"
+        ],
+        "Media & Graphics": [
+            "vlc",
+            "gimp",
+            "inkscape",
+            "audacity",
+            "obs-studio",
+            "handbrake",
+            "paint.net",
+            "blender"
+        ],
+        "Gaming Essentials": [
+            "steam",
+            "epicgameslauncher",
+            "discord",
+            "spotify",
+            "nvidia-geforce-experience",
+            "razer-synapse-3",
+            "msi-afterburner"
+        ],
+        "Security & Privacy": [
+            "malwarebytes",
+            "ccleaner",
+            "bitwarden",
+            "tor-browser",
+            "veracrypt",
+            "windirstat",
+            "revo-uninstaller"
+        ]
+    }
+}

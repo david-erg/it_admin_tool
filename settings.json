@@ -1,12 +1,23 @@
 {
-  "dark_mode": false,
-  "window_width": 1200,
-  "window_height": 800,
-  "window_maximized": true,
-  "last_preset_used": "",
-  "auto_refresh_system_info": true,
-  "confirm_package_installation": true,
-  "confirm_bloatware_removal": true,
-  "search_limit": 100,
-  "command_timeout": 30
+  "metadata": {
+    "last_saved": "2025-07-09T15:09:43.074862",
+    "version": "2.1"
+  },
+  "settings": {
+    "dark_mode": false,
+    "window_width": 1200,
+    "window_height": 800,
+    "window_maximized": true,
+    "last_preset_used": "",
+    "auto_refresh_system_info": true,
+    "confirm_package_installation": true,
+    "confirm_bloatware_removal": true,
+    "search_limit": 100,
+    "command_timeout": 30,
+    "auto_save_settings": true,
+    "log_level": "INFO",
+    "export_format": "csv",
+    "backup_before_operations": true,
+    "theme": "light"
+  }
 }

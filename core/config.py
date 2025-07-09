@@ -7,7 +7,7 @@ including user settings, software presets, and application defaults.
 
 import json
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 
 from .constants import (

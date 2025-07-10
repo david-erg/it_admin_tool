@@ -1,302 +1,298 @@
 """
-Constants for the IT Admin Tool.
+Core Constants for IT Admin Tool
 
-This module defines all application constants including UI dimensions,
-timeout values, default settings, and configuration file names.
+Contains all application constants, configuration values, and shared data.
+GUI-only version with simplified structure.
 """
 
-from typing import Dict, List
+from pathlib import Path
+from typing import Dict, List, Set
 
-# Application Information
+# =============================================================================
+# APPLICATION INFO
+# =============================================================================
+
 APP_NAME = "Admin's ToolBox"
-APP_VERSION = "2.1"
+APP_VERSION = "3.0"
+APP_DESCRIPTION = "IT Administration Tool for Windows"
 
-# File Names
+# =============================================================================
+# FILE CONFIGURATION
+# =============================================================================
+
 SETTINGS_FILE = "settings.json"
 PRESETS_FILE = "presets.json"
+LOG_FILE = "admin_toolbox.log"
 
-# Timeout Constants (in seconds)
+# =============================================================================
+# TIMEOUTS (seconds)
+# =============================================================================
+
 DEFAULT_COMMAND_TIMEOUT = 30
-CHOCOLATEY_INSTALL_TIMEOUT = 600  # 10 minutes
-PACKAGE_SEARCH_TIMEOUT = 60
+CHOCOLATEY_INSTALL_TIMEOUT = 300  # 5 minutes for package installation
+PACKAGE_SEARCH_TIMEOUT = 15
 SYSTEM_INFO_TIMEOUT = 45
-PACKAGE_SEARCH_LIMIT = 100
+WMI_QUERY_TIMEOUT = 20
 
-# UI Constants
-MIN_WINDOW_WIDTH = 800
-MIN_WINDOW_HEIGHT = 600
+# =============================================================================
+# UI CONFIGURATION
+# =============================================================================
+
+# Window sizing
+MIN_WINDOW_WIDTH = 1000
+MIN_WINDOW_HEIGHT = 700
 DEFAULT_WINDOW_WIDTH = 1200
 DEFAULT_WINDOW_HEIGHT = 800
-HEADER_HEIGHT = 60
 
-# Theme Colors
+# Layout
+HEADER_HEIGHT = 60
+TAB_HEIGHT = 40
+BUTTON_HEIGHT = 35
+SPACING_SMALL = 5
+SPACING_MEDIUM = 10
+SPACING_LARGE = 20
+
+# Theme colors
 THEME_COLORS = {
-    "primary": "#2196F3",
-    "secondary": "#FFC107",
-    "success": "#4CAF50",
-    "danger": "#F44336",
-    "warning": "#FF9800",
-    "info": "#00BCD4",
-    "light": "#F8F9FA",
-    "dark": "#343A40",
-    "background_light": "#FFFFFF",
-    "background_dark": "#2B2B2B",
-    "text_light": "#000000",
-    "text_dark": "#FFFFFF",
-    "border": "#DEE2E6",
-    "hover": "#E3F2FD"
+    'primary': '#2563eb',      # Blue
+    'secondary': '#64748b',    # Slate
+    'success': '#059669',      # Green
+    'warning': '#d97706',      # Orange
+    'error': '#dc2626',        # Red
+    'background': '#f8fafc',   # Light gray
+    'surface': '#ffffff',      # White
+    'text_primary': '#1e293b', # Dark gray
+    'text_secondary': '#64748b' # Medium gray
 }
 
-# Default Software Presets
-DEFAULT_PRESETS: Dict[str, List[str]] = {
-    "Basic Office Setup": [
-        "googlechrome",
-        "firefox",
+# =============================================================================
+# PACKAGE MANAGEMENT
+# =============================================================================
+
+PACKAGE_SEARCH_LIMIT = 50
+MAX_PACKAGE_SEARCH_RESULTS = 100
+MAX_CONCURRENT_INSTALLATIONS = 3
+
+# Chocolatey configuration
+CHOCOLATEY_SOURCE = "https://community.chocolatey.org/api/v2"
+CHOCOLATEY_INSTALL_ARGS = [
+    "--yes",
+    "--no-progress", 
+    "--ignore-checksums"
+]
+
+# =============================================================================
+# FILE OPERATIONS
+# =============================================================================
+
+# File size limits (bytes)
+MAX_SINGLE_FILE_SIZE = 5 * 1024 * 1024 * 1024  # 5GB
+MAX_TOTAL_COPY_SIZE = 50 * 1024 * 1024 * 1024   # 50GB
+
+# File patterns
+BACKUP_FILE_EXTENSION = ".backup"
+LOG_FILE_EXTENSION = ".log"
+TEMP_FILE_PREFIX = "admin_toolbox_"
+
+# Supported formats
+SUPPORTED_EXPORT_FORMATS = [".json", ".csv", ".txt", ".xml"]
+
+# =============================================================================
+# VALIDATION PATTERNS
+# =============================================================================
+
+import re
+
+VALID_PACKAGE_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9\-\._]+$')
+VALID_USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9\-\._@]+$')
+VALID_FILENAME_PATTERN = re.compile(r'^[^<>:"/\\|?*\x00-\x1f]+$')
+
+# =============================================================================
+# DIRECTORY CONFIGURATION  
+# =============================================================================
+
+DEFAULT_BACKUP_DIR = "Backups"
+DEFAULT_LOGS_DIR = "Logs"
+DEFAULT_EXPORTS_DIR = "Exports"
+DEFAULT_CONFIG_DIR = "Config"
+DEFAULT_TEMP_DIR = "Temp"
+
+# =============================================================================
+# SOFTWARE PRESETS
+# =============================================================================
+
+DEFAULT_PRESETS = {
+    "Essential": [
         "7zip",
+        "googlechrome", 
         "notepadplusplus",
         "vlc",
-        "adobe-acrobat-reader-dc",
-        "microsoft-office-deployment"
+        "firefox"
     ],
-    "Developer Essentials": [
+    "Development": [
         "git",
         "vscode",
         "python",
         "nodejs",
-        "docker-desktop",
-        "postman",
-        "github-desktop",
-        "visualstudio2022community"
+        "docker-desktop"
     ],
-    "System Administration": [
-        "sysinternals",
-        "putty",
-        "wireshark",
-        "teamviewer",
-        "powershell-core",
-        "openssh",
-        "curl",
-        "wget"
-    ],
-    "Media & Graphics": [
+    "Media": [
         "vlc",
-        "gimp",
-        "inkscape",
-        "audacity",
-        "obs-studio",
         "handbrake",
-        "paint.net",
-        "blender"
+        "audacity",
+        "gimp",
+        "obs-studio"
     ],
-    "Gaming Essentials": [
-        "steam",
-        "epicgameslauncher",
-        "discord",
-        "spotify",
-        "nvidia-geforce-experience",
-        "razer-synapse-3",
-        "msi-afterburner"
-    ],
-    "Security & Privacy": [
-        "malwarebytes",
-        "ccleaner",
-        "bitwarden",
-        "tor-browser",
-        "veracrypt",
-        "windirstat",
-        "revo-uninstaller"
+    "Office": [
+        "libreoffice",
+        "adobereader",
+        "zoom",
+        "teamviewer",
+        "skype"
     ]
 }
 
-# Common Bloatware Applications
-BLOATWARE_APPS: List[str] = [
-    "Microsoft.549981C3F5F10",  # Cortana
-    "Microsoft.BingWeather",
+# =============================================================================
+# WINDOWS BLOATWARE
+# =============================================================================
+
+COMMON_BLOATWARE = [
+    # Microsoft Apps
+    "Microsoft.3DBuilder",
+    "Microsoft.BingFinance", 
     "Microsoft.BingNews",
+    "Microsoft.BingSports",
+    "Microsoft.BingWeather",
     "Microsoft.GetHelp",
     "Microsoft.Getstarted",
-    "Microsoft.MixedReality.Portal",
+    "Microsoft.Messaging",
     "Microsoft.Microsoft3DViewer",
-    "Microsoft.MSPaint",
-    "Microsoft.YourPhone",
-    "Microsoft.WindowsFeedbackHub",
+    "Microsoft.MicrosoftOfficeHub",
+    "Microsoft.MicrosoftSolitaireCollection",
+    "Microsoft.MixedReality.Portal",
+    "Microsoft.Office.OneNote",
+    "Microsoft.People",
+    "Microsoft.Print3D",
+    "Microsoft.SkypeApp",
+    "Microsoft.Wallet",
+    "Microsoft.WindowsAlarms",
+    "Microsoft.WindowsCamera",
+    "microsoft.windowscommunicationsapps",
     "Microsoft.WindowsMaps",
+    "Microsoft.WindowsPhone",
     "Microsoft.WindowsSoundRecorder",
     "Microsoft.Xbox.TCUI",
     "Microsoft.XboxApp",
     "Microsoft.XboxGameOverlay",
-    "Microsoft.XboxGamingOverlay",
-    "Microsoft.XboxIdentityProvider",
     "Microsoft.XboxSpeechToTextOverlay",
+    "Microsoft.YourPhone",
     "Microsoft.ZuneMusic",
     "Microsoft.ZuneVideo",
-    "Disney.37853FC22B2CE",
-    "Clipchamp.Clipchamp",
-    "Microsoft.Todos",
-    "Microsoft.PowerAutomateDesktop",
-    "SpotifyAB.SpotifyMusic",
-    "king.com.CandyCrushSaga",
-    "king.com.CandyCrushSodaSaga",
-    "FACEBOOK.317180B0BB486",
-    "TikTok.TikTok",
-    "BytedancePte.Ltd.TikTok"
+    
+    # Third-party bloatware
+    "CandyCrush",
+    "Facebook",
+    "Instagram", 
+    "TikTok",
+    "Twitter",
+    "Netflix",
+    "Spotify",
+    "Disney",
+    "Xbox",
+    "LinkedInforWindows"
 ]
 
-# Legacy alias for compatibility
-COMMON_BLOATWARE = BLOATWARE_APPS
+# Legacy alias for backwards compatibility
+BLOATWARE_APPS = COMMON_BLOATWARE
 
-# Essential Windows Settings
-ESSENTIAL_SETTINGS: Dict[str, str] = {
-    "show_file_extensions": "Show file extensions in File Explorer",
-    "show_hidden_files": "Show hidden files and folders",
-    "disable_cortana": "Disable Cortana",
-    "disable_web_search": "Disable web search in Start Menu",
-    "disable_telemetry": "Disable Windows telemetry and data collection",
-    "disable_consumer_features": "Disable consumer features (ads, suggestions)",
-    "disable_location_tracking": "Disable location tracking",
-    "disable_advertising_id": "Disable advertising ID",
-    "enable_dark_mode": "Enable Windows dark mode",
-    "disable_lock_screen_ads": "Disable lock screen ads and tips",
-    "disable_timeline": "Disable Windows Timeline",
-    "classic_right_click": "Enable classic right-click context menu (Windows 11)",
-    "taskbar_cleanup": "Remove weather, news, task view from taskbar",
-    "disable_notifications": "Disable non-essential notifications",
-    "disable_startup_boost": "Disable Windows startup boost",
-    "privacy_settings": "Configure privacy settings for better security",
-    "disable_background_apps": "Disable unnecessary background apps"
+# =============================================================================
+# WINDOWS SETTINGS
+# =============================================================================
+
+ESSENTIAL_SETTINGS = {
+    "Privacy": [
+        "Disable location tracking",
+        "Disable advertising ID",
+        "Disable app suggestions",
+        "Disable timeline collection"
+    ],
+    "Performance": [
+        "Disable visual effects",
+        "Optimize for performance",
+        "Disable startup programs",
+        "Clean temporary files"
+    ],
+    "Security": [
+        "Enable Windows Defender",
+        "Configure firewall",
+        "Disable remote assistance",
+        "Set strong password policy"
+    ]
 }
 
-# Registry Commands for Essential Settings
-ESSENTIAL_SETTINGS_COMMANDS: Dict[str, Dict[str, str]] = {
-    "show_file_extensions": {
-        "command": r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v HideFileExt /t REG_DWORD /d 0 /f',
-        "description": "Show file extensions"
+RECOMMENDED_REGISTRY_TWEAKS = {
+    # Disable telemetry
+    r"HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection": {
+        "AllowTelemetry": 0
     },
-    "show_hidden_files": {
-        "command": r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced" /v Hidden /t REG_DWORD /d 1 /f',
-        "description": "Show hidden files"
+    # Disable Cortana
+    r"HKLM\SOFTWARE\Policies\Microsoft\Windows\Windows Search": {
+        "AllowCortana": 0
     },
-    "disable_cortana": {
-        "command": r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Search" /v SearchboxTaskbarMode /t REG_DWORD /d 0 /f',
-        "description": "Disable Cortana search box"
-    },
-    "disable_web_search": {
-        "command": r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Search" /v BingSearchEnabled /t REG_DWORD /d 0 /f',
-        "description": "Disable web search in Start Menu"
-    },
-    "disable_telemetry": {
-        "command": r'reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\DataCollection" /v AllowTelemetry /t REG_DWORD /d 0 /f',
-        "description": "Disable Windows telemetry"
-    },
-    "disable_consumer_features": {
-        "command": r'reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent" /v DisableWindowsConsumerFeatures /t REG_DWORD /d 1 /f',
-        "description": "Disable consumer features"
-    },
-    "disable_location_tracking": {
-        "command": r'reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\LocationAndSensors" /v DisableLocation /t REG_DWORD /d 1 /f',
-        "description": "Disable location tracking"
-    },
-    "disable_advertising_id": {
-        "command": r'reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\AdvertisingInfo" /v DisabledByGroupPolicy /t REG_DWORD /d 1 /f',
-        "description": "Disable advertising ID"
-    },
-    "enable_dark_mode": {
-        "command": r'reg add "HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v AppsUseLightTheme /t REG_DWORD /d 0 /f',
-        "description": "Enable dark mode for apps"
-    },
-    "disable_lock_screen_ads": {
-        "command": r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v RotatingLockScreenOverlayEnabled /t REG_DWORD /d 0 /f',
-        "description": "Disable lock screen ads"
-    },
-    "disable_timeline": {
-        "command": r'reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\System" /v EnableActivityFeed /t REG_DWORD /d 0 /f',
-        "description": "Disable Windows Timeline"
-    },
-    "classic_right_click": {
-        "command": r'reg add "HKCU\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" /f',
-        "description": "Enable classic right-click menu (Windows 11)"
-    },
-    "taskbar_cleanup": {
-        "command": r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Search" /v SearchboxTaskbarMode /t REG_DWORD /d 0 /f',
-        "description": "Clean up taskbar elements"
-    },
-    "disable_notifications": {
-        "command": r'reg add "HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\PushNotifications" /v ToastEnabled /t REG_DWORD /d 0 /f',
-        "description": "Disable non-essential notifications"
-    },
-    "disable_startup_boost": {
-        "command": r'reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" /v EnableSuperfetch /t REG_DWORD /d 0 /f',
-        "description": "Disable startup boost"
-    },
-    "privacy_settings": {
-        "command": r'reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\AppPrivacy" /v LetAppsAccessAccountInfo /t REG_DWORD /d 2 /f',
-        "description": "Configure privacy settings"
-    },
-    "disable_background_apps": {
-        "command": r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" /v GlobalUserDisabled /t REG_DWORD /d 1 /f',
-        "description": "Disable background apps"
+    # Disable automatic updates restart
+    r"HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU": {
+        "NoAutoRebootWithLoggedOnUsers": 1
     }
 }
 
-# Recommended Settings (subset of essential settings)
-RECOMMENDED_SETTINGS: List[str] = [
-    "show_file_extensions",
-    "show_hidden_files",
-    "disable_cortana",
-    "disable_telemetry",
-    "disable_consumer_features",
-    "disable_advertising_id",
-    "disable_lock_screen_ads",
-    "privacy_settings"
-]
+# =============================================================================
+# ERROR MESSAGES
+# =============================================================================
 
-# PowerShell Commands for complex operations
-POWERSHELL_COMMANDS: Dict[str, str] = {
-    "get_installed_programs": "Get-WmiObject -Class Win32_Product | Select-Object Name, Version, Vendor | Sort-Object Name",
-    "get_startup_programs": "Get-WmiObject Win32_StartupCommand | Select-Object Name, Command, Location | Sort-Object Name",
-    "get_services": "Get-Service | Select-Object Name, Status, StartType | Sort-Object Name",
-    "get_network_adapters": "Get-NetAdapter | Select-Object Name, Status, LinkSpeed | Sort-Object Name",
-    "get_disk_info": "Get-WmiObject -Class Win32_LogicalDisk | Select-Object DeviceID, Size, FreeSpace, FileSystem",
-    "get_system_info": "Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, TotalPhysicalMemory"
+ERROR_MESSAGES = {
+    'admin_required': "Administrator privileges required for this operation.",
+    'chocolatey_not_found': "Chocolatey package manager not found. Please install Chocolatey first.",
+    'package_not_found': "Package not found in repository.",
+    'installation_failed': "Package installation failed. Check logs for details.",
+    'file_not_found': "File or directory not found.",
+    'permission_denied': "Permission denied. Check file permissions.",
+    'invalid_path': "Invalid file path specified.",
+    'network_error': "Network connection error. Check internet connectivity.",
+    'wmi_query_failed': "WMI query failed. System information may be incomplete.",
+    'registry_access_denied': "Registry access denied. Administrator privileges required."
 }
 
-# Error Messages
-ERROR_MESSAGES: Dict[str, str] = {
-    "admin_required": "Administrator privileges are required for this operation.",
-    "chocolatey_not_found": "Chocolatey package manager is not installed.",
-    "internet_required": "Internet connection is required for this operation.",
-    "file_not_found": "The specified file could not be found.",
-    "invalid_path": "The specified path is invalid or inaccessible.",
-    "operation_cancelled": "Operation was cancelled by the user.",
-    "unexpected_error": "An unexpected error occurred. Please check the logs for details."
+SUCCESS_MESSAGES = {
+    'package_installed': "Package installed successfully.",
+    'package_removed': "Package removed successfully.",
+    'settings_applied': "Settings applied successfully.",
+    'bloatware_removed': "Bloatware removal completed.",
+    'files_copied': "Files copied successfully.",
+    'backup_created': "Backup created successfully.",
+    'system_info_gathered': "System information gathered successfully."
 }
 
-# Success Messages  
-SUCCESS_MESSAGES: Dict[str, str] = {
-    "operation_complete": "Operation completed successfully.",
-    "packages_installed": "All packages were installed successfully.",
-    "settings_applied": "Settings have been applied successfully.",
-    "backup_created": "Backup created successfully.",
-    "export_complete": "Export completed successfully."
-}
+# =============================================================================
+# LIMITS AND CONSTRAINTS
+# =============================================================================
 
-# File Extensions
-SUPPORTED_EXPORT_FORMATS = ['.csv', '.json', '.html', '.txt']
-BACKUP_FILE_EXTENSION = '.backup'
-LOG_FILE_EXTENSION = '.log'
-
-# Validation Patterns
-VALID_PACKAGE_NAME_PATTERN = r'^[a-zA-Z0-9\-\._]+$'
-VALID_USERNAME_PATTERN = r'^[a-zA-Z0-9\-\._]+$'
-
-# Default Directories
-DEFAULT_BACKUP_DIR = "backups"
-DEFAULT_LOGS_DIR = "logs"
-DEFAULT_EXPORTS_DIR = "exports"
-DEFAULT_CONFIG_DIR = "config"
-
-# Application Limits
-MAX_PACKAGE_SEARCH_RESULTS = 500
-MAX_CONCURRENT_INSTALLATIONS = 3
 MAX_LOG_FILE_SIZE_MB = 10
 MAX_BACKUP_AGE_DAYS = 30
+MAX_PARALLEL_OPERATIONS = 5
+MAX_RETRY_ATTEMPTS = 3
+
+# System requirements
+MIN_PYTHON_VERSION = (3, 10)
+MIN_WINDOWS_VERSION = "10"
+MIN_FREE_DISK_SPACE_GB = 1
+
+# =============================================================================
+# FEATURE FLAGS
+# =============================================================================
+
+ENABLE_SYSTEM_INFO = True
+ENABLE_SOFTWARE_MANAGEMENT = True
+ENABLE_FILE_OPERATIONS = True
+ENABLE_WINDOWS_SETUP = True
+ENABLE_ADVANCED_LOGGING = True
+ENABLE_AUTO_BACKUP = True

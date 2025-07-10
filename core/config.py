@@ -1,514 +1,550 @@
 """
-Configuration management for the IT Admin Tool.
+Configuration Manager for IT Admin Tool
 
-This module handles loading, saving, and managing application configuration
-including user settings, software presets, and application defaults.
+Handles application settings, user preferences, and configuration persistence.
+Provides a clean interface for managing all configuration data.
 """
 
 import json
+import logging
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Union, List
+from dataclasses import dataclass, asdict, field
 from datetime import datetime
+from enum import Enum
 
+from .utils import (
+    get_application_path, 
+    load_json_config, 
+    save_json_config,
+    validate_path
+)
 from .constants import (
     SETTINGS_FILE,
-    PRESETS_FILE, 
+    PRESETS_FILE,
     DEFAULT_PRESETS,
+    THEME_COLORS,
     DEFAULT_WINDOW_WIDTH,
     DEFAULT_WINDOW_HEIGHT
 )
-from .utils import get_application_path
+
+
+class ThemeMode(Enum):
+    """Application theme modes."""
+    LIGHT = "light"
+    DARK = "dark"
+    AUTO = "auto"
+
+
+class LogLevel(Enum):
+    """Logging levels."""
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+@dataclass
+class WindowSettings:
+    """Window configuration settings."""
+    width: int = DEFAULT_WINDOW_WIDTH
+    height: int = DEFAULT_WINDOW_HEIGHT
+    x: Optional[int] = None
+    y: Optional[int] = None
+    maximized: bool = False
+    theme: str = ThemeMode.LIGHT.value
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'WindowSettings':
+        """Create from dictionary."""
+        return cls(**{k: v for k, v in data.items() if k in cls.__annotations__})
+
+
+@dataclass
+class ApplicationSettings:
+    """General application settings."""
+    auto_check_updates: bool = True
+    minimize_to_tray: bool = False
+    start_minimized: bool = False
+    remember_window_state: bool = True
+    log_level: str = LogLevel.INFO.value
+    max_log_files: int = 10
+    enable_animations: bool = True
+    confirm_dangerous_operations: bool = True
+    auto_backup_settings: bool = True
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ApplicationSettings':
+        """Create from dictionary."""
+        return cls(**{k: v for k, v in data.items() if k in cls.__annotations__})
+
+
+@dataclass
+class ChocolateySettings:
+    """Chocolatey package manager settings."""
+    auto_confirm: bool = True
+    use_local_only: bool = False
+    ignore_checksums: bool = True
+    timeout_minutes: int = 10
+    parallel_downloads: int = 3
+    custom_source: Optional[str] = None
+    proxy_url: Optional[str] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ChocolateySettings':
+        """Create from dictionary."""
+        return cls(**{k: v for k, v in data.items() if k in cls.__annotations__})
+
+
+@dataclass
+class FileOperationSettings:
+    """File operation settings."""
+    default_copy_mode: str = "copy"
+    verify_copies: bool = False
+    preserve_timestamps: bool = True
+    preserve_permissions: bool = True
+    show_progress: bool = True
+    conflict_resolution: str = "ask"
+    max_file_size_gb: int = 5
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'FileOperationSettings':
+        """Create from dictionary."""
+        return cls(**{k: v for k, v in data.items() if k in cls.__annotations__})
+
+
+@dataclass
+class SystemInfoSettings:
+    """System information gathering settings."""
+    include_hardware: bool = True
+    include_software: bool = True
+    include_network: bool = True
+    include_performance: bool = False
+    detailed_scan: bool = False
+    timeout_seconds: int = 30
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'SystemInfoSettings':
+        """Create from dictionary."""
+        return cls(**{k: v for k, v in data.items() if k in cls.__annotations__})
+
+
+@dataclass
+class AppConfig:
+    """Complete application configuration."""
+    window: WindowSettings = field(default_factory=WindowSettings)
+    application: ApplicationSettings = field(default_factory=ApplicationSettings)
+    chocolatey: ChocolateySettings = field(default_factory=ChocolateySettings)
+    file_operations: FileOperationSettings = field(default_factory=FileOperationSettings)
+    system_info: SystemInfoSettings = field(default_factory=SystemInfoSettings)
+    last_updated: str = field(default_factory=lambda: datetime.now().isoformat())
+    version: str = "3.0"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert entire config to dictionary."""
+        return {
+            'window': self.window.to_dict(),
+            'application': self.application.to_dict(),
+            'chocolatey': self.chocolatey.to_dict(),
+            'file_operations': self.file_operations.to_dict(),
+            'system_info': self.system_info.to_dict(),
+            'last_updated': self.last_updated,
+            'version': self.version
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'AppConfig':
+        """Create config from dictionary."""
+        return cls(
+            window=WindowSettings.from_dict(data.get('window', {})),
+            application=ApplicationSettings.from_dict(data.get('application', {})),
+            chocolatey=ChocolateySettings.from_dict(data.get('chocolatey', {})),
+            file_operations=FileOperationSettings.from_dict(data.get('file_operations', {})),
+            system_info=SystemInfoSettings.from_dict(data.get('system_info', {})),
+            last_updated=data.get('last_updated', datetime.now().isoformat()),
+            version=data.get('version', '3.0')
+        )
 
 
 class ConfigManager:
     """
-    Manages application configuration including settings and presets.
+    Manages application configuration and settings persistence.
     
-    This class provides a centralized way to handle all configuration
-    data for the application, including user settings, software presets,
-    and theme preferences.
+    Provides a centralized interface for loading, saving, and managing
+    all application configuration data with automatic backup and validation.
     """
     
-    def __init__(self):
-        self.app_path = get_application_path()
-        self.settings_file = self.app_path / SETTINGS_FILE
-        self.presets_file = self.app_path / PRESETS_FILE
-        
-        # Default settings
-        self._default_settings = {
-            "dark_mode": False,
-            "window_width": DEFAULT_WINDOW_WIDTH,
-            "window_height": DEFAULT_WINDOW_HEIGHT,
-            "window_maximized": False,
-            "last_preset_used": "",
-            "auto_refresh_system_info": True,
-            "confirm_package_installation": True,
-            "confirm_bloatware_removal": True,
-            "search_limit": 100,
-            "command_timeout": 30,
-            "auto_save_settings": True,
-            "log_level": "INFO",
-            "export_format": "csv",
-            "backup_before_operations": True,
-            "theme": "light"
-        }
-        
-        self._settings: Dict[str, Any] = {}
-        self._presets: Dict[str, List[str]] = {}
-        
-        # Load configuration on initialization
-        self.load_settings()
-        self.load_presets()
-    
-    # Settings Management
-    def load_settings(self) -> Dict[str, Any]:
+    def __init__(self, config_dir: Optional[Path] = None):
         """
-        Load application settings from file.
-        
-        Returns:
-            Dict[str, Any]: Loaded settings with defaults for missing values
-        """
-        try:
-            if self.settings_file.exists():
-                with open(self.settings_file, 'r', encoding='utf-8') as f:
-                    loaded_settings = json.load(f)
-                    
-                # Merge with defaults to ensure all keys exist
-                self._settings = {**self._default_settings, **loaded_settings}
-            else:
-                self._settings = self._default_settings.copy()
-                
-        except Exception as e:
-            print(f"Warning: Failed to load settings: {e}")
-            self._settings = self._default_settings.copy()
-        
-        return self._settings
-    
-    def save_settings(self) -> bool:
-        """
-        Save current settings to file.
-        
-        Returns:
-            bool: True if saved successfully, False otherwise
-        """
-        try:
-            # Add metadata
-            settings_with_metadata = {
-                "metadata": {
-                    "last_saved": datetime.now().isoformat(),
-                    "version": "2.1"
-                },
-                "settings": self._settings
-            }
-            
-            with open(self.settings_file, 'w', encoding='utf-8') as f:
-                json.dump(settings_with_metadata, f, indent=2)
-            return True
-            
-        except Exception as e:
-            print(f"Warning: Failed to save settings: {e}")
-            return False
-    
-    def get_setting(self, key: str, default: Any = None) -> Any:
-        """
-        Get a specific setting value.
+        Initialize configuration manager.
         
         Args:
-            key: Setting key
-            default: Default value if key not found
-        
-        Returns:
-            Any: Setting value or default
+            config_dir: Optional custom configuration directory
         """
-        return self._settings.get(key, default)
+        self.config_dir = config_dir or (get_application_path() / "config")
+        self.config_file = self.config_dir / SETTINGS_FILE
+        self.presets_file = self.config_dir / PRESETS_FILE
+        self.backup_dir = self.config_dir / "backups"
+        
+        # Ensure directories exist
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Load configuration
+        self._config = self._load_config()
+        self._presets = self._load_presets()
+        
+        logging.info(f"Configuration manager initialized: {self.config_dir}")
     
-    def set_setting(self, key: str, value: Any) -> None:
-        """
-        Set a specific setting value.
-        
-        Args:
-            key: Setting key
-            value: Setting value
-        """
-        self._settings[key] = value
-        
-        # Auto-save if enabled
-        if self.get_setting("auto_save_settings", True):
-            self.save_settings()
+    @property
+    def config(self) -> AppConfig:
+        """Get current application configuration."""
+        return self._config
     
-    def get_all_settings(self) -> Dict[str, Any]:
-        """
-        Get all current settings.
-        
-        Returns:
-            Dict[str, Any]: All settings
-        """
-        return self._settings.copy()
-    
-    def reset_settings(self) -> None:
-        """Reset all settings to defaults."""
-        self._settings = self._default_settings.copy()
-        self.save_settings()
-    
-    def update_settings(self, new_settings: Dict[str, Any]) -> bool:
-        """
-        Update multiple settings at once.
-        
-        Args:
-            new_settings: Dictionary of settings to update
-        
-        Returns:
-            bool: True if updated successfully
-        """
-        try:
-            self._settings.update(new_settings)
-            return self.save_settings()
-        except Exception:
-            return False
-    
-    # Presets Management
-    def load_presets(self) -> Dict[str, List[str]]:
-        """
-        Load software presets from file.
-        
-        If the presets file doesn't exist, creates it with default presets.
-        
-        Returns:
-            Dict[str, List[str]]: Loaded presets
-        """
-        try:
-            if not self.presets_file.exists():
-                self.create_default_presets_file()
-            
-            with open(self.presets_file, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                
-                # Handle both old and new format
-                if "presets" in config:
-                    raw_presets = config["presets"]
-                else:
-                    # Old format: entire file is presets
-                    raw_presets = config
-                
-                # Convert presets to simple format (name -> package list)
-                self._presets = {}
-                for preset_name, preset_data in raw_presets.items():
-                    if isinstance(preset_data, list):
-                        # Old format: preset is directly a list of packages
-                        self._presets[preset_name] = preset_data
-                    elif isinstance(preset_data, dict):
-                        # New format: preset is an object with packages array
-                        packages = preset_data.get("packages", [])
-                        self._presets[preset_name] = packages
-                    else:
-                        # Skip invalid preset format
-                        continue
-                        
-        except Exception as e:
-            print(f"Warning: Failed to load presets: {e}")
-            self._presets = DEFAULT_PRESETS.copy()
-            self.create_default_presets_file()
-        
+    @property
+    def presets(self) -> Dict[str, List[str]]:
+        """Get current software presets."""
         return self._presets
     
-    def save_presets(self) -> bool:
+    def _load_config(self) -> AppConfig:
+        """Load configuration from file."""
+        try:
+            config_data = load_json_config(self.config_file, {})
+            if config_data:
+                return AppConfig.from_dict(config_data)
+            else:
+                logging.info("No existing configuration found, using defaults")
+                return AppConfig()
+        except Exception as e:
+            logging.error(f"Failed to load configuration: {e}")
+            return AppConfig()
+    
+    def _load_presets(self) -> Dict[str, List[str]]:
+        """Load software presets from file."""
+        try:
+            presets_data = load_json_config(self.presets_file, DEFAULT_PRESETS)
+            # Validate presets structure
+            if isinstance(presets_data, dict) and all(
+                isinstance(k, str) and isinstance(v, list) 
+                for k, v in presets_data.items()
+            ):
+                return presets_data
+            else:
+                logging.warning("Invalid presets format, using defaults")
+                return DEFAULT_PRESETS.copy()
+        except Exception as e:
+            logging.error(f"Failed to load presets: {e}")
+            return DEFAULT_PRESETS.copy()
+    
+    def save_config(self, backup: bool = True) -> bool:
+        """
+        Save current configuration to file.
+        
+        Args:
+            backup: Whether to create backup before saving
+            
+        Returns:
+            bool: True if saved successfully
+        """
+        try:
+            # Create backup if requested
+            if backup and self.config_file.exists():
+                self._create_backup()
+            
+            # Update timestamp
+            self._config.last_updated = datetime.now().isoformat()
+            
+            # Save configuration
+            success = save_json_config(self.config_file, self._config.to_dict())
+            
+            if success:
+                logging.info("Configuration saved successfully")
+            else:
+                logging.error("Failed to save configuration")
+            
+            return success
+            
+        except Exception as e:
+            logging.error(f"Error saving configuration: {e}")
+            return False
+    
+    def save_presets(self, backup: bool = True) -> bool:
         """
         Save current presets to file.
         
-        Returns:
-            bool: True if saved successfully, False otherwise
-        """
-        try:
-            config = {
-                "metadata": {
-                    "last_saved": datetime.now().isoformat(),
-                    "version": "2.1",
-                    "total_presets": len(self._presets)
-                },
-                "presets": self._presets
-            }
+        Args:
+            backup: Whether to create backup before saving
             
-            with open(self.presets_file, 'w', encoding='utf-8') as f:
-                json.dump(config, f, indent=4)
-            return True
+        Returns:
+            bool: True if saved successfully
+        """
+        try:
+            # Create backup if requested
+            if backup and self.presets_file.exists():
+                self._create_presets_backup()
             
-        except Exception as e:
-            print(f"Warning: Failed to save presets: {e}")
-            return False
-    
-    def get_presets(self) -> Dict[str, List[str]]:
-        """
-        Get all available presets.
-        
-        Returns:
-            Dict[str, List[str]]: All presets
-        """
-        return self._presets.copy()
-    
-    def get_preset(self, name: str) -> Optional[List[str]]:
-        """
-        Get a specific preset by name.
-        
-        Args:
-            name: Preset name
-        
-        Returns:
-            Optional[List[str]]: Preset packages or None if not found
-        """
-        return self._presets.get(name)
-    
-    def add_preset(self, name: str, packages: List[str]) -> bool:
-        """
-        Add a new preset.
-        
-        Args:
-            name: Preset name
-            packages: List of package names
-        
-        Returns:
-            bool: True if added successfully
-        """
-        try:
-            self._presets[name] = packages.copy()
-            return self.save_presets()
-        except Exception:
-            return False
-    
-    def remove_preset(self, name: str) -> bool:
-        """
-        Remove a preset.
-        
-        Args:
-            name: Preset name to remove
-        
-        Returns:
-            bool: True if removed successfully
-        """
-        try:
-            if name in self._presets:
-                del self._presets[name]
-                return self.save_presets()
-            return False
-        except Exception:
-            return False
-    
-    def update_preset(self, name: str, packages: List[str]) -> bool:
-        """
-        Update an existing preset.
-        
-        Args:
-            name: Preset name
-            packages: New list of packages
-        
-        Returns:
-            bool: True if updated successfully
-        """
-        if name in self._presets:
-            return self.add_preset(name, packages)
-        return False
-    
-    def preset_exists(self, name: str) -> bool:
-        """
-        Check if a preset exists.
-        
-        Args:
-            name: Preset name
-        
-        Returns:
-            bool: True if preset exists
-        """
-        return name in self._presets
-    
-    def get_preset_names(self) -> List[str]:
-        """
-        Get list of all preset names.
-        
-        Returns:
-            List[str]: List of preset names sorted alphabetically
-        """
-        return sorted(list(self._presets.keys()))
-    
-    def get_preset_count(self) -> int:
-        """
-        Get the number of presets.
-        
-        Returns:
-            int: Number of presets
-        """
-        return len(self._presets)
-    
-    def create_default_presets_file(self) -> bool:
-        """
-        Create the default presets configuration file.
-        
-        Returns:
-            bool: True if created successfully, False otherwise
-        """
-        try:
-            self._presets = DEFAULT_PRESETS.copy()
-            return self.save_presets()
+            # Save presets
+            success = save_json_config(self.presets_file, self._presets)
             
-        except Exception as e:
-            print(f"Warning: Could not create default presets config: {e}")
-            return False
-    
-    def import_presets_from_dict(self, presets_dict: Dict[str, List[str]], 
-                                overwrite: bool = False) -> Tuple[int, int]:
-        """
-        Import presets from a dictionary.
-        
-        Args:
-            presets_dict: Dictionary of presets to import
-            overwrite: Whether to overwrite existing presets
-        
-        Returns:
-            Tuple[int, int]: (imported_count, skipped_count)
-        """
-        imported = 0
-        skipped = 0
-        
-        for name, packages in presets_dict.items():
-            if name in self._presets and not overwrite:
-                skipped += 1
+            if success:
+                logging.info("Presets saved successfully")
             else:
-                self._presets[name] = packages.copy()
-                imported += 1
-        
-        if imported > 0:
-            self.save_presets()
-        
-        return imported, skipped
+                logging.error("Failed to save presets")
+            
+            return success
+            
+        except Exception as e:
+            logging.error(f"Error saving presets: {e}")
+            return False
     
-    # Theme Management
-    def is_dark_mode(self) -> bool:
-        """
-        Check if dark mode is enabled.
-        
-        Returns:
-            bool: True if dark mode is enabled
-        """
-        return self.get_setting("dark_mode", False)
+    def _create_backup(self) -> None:
+        """Create backup of current configuration."""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_file = self.backup_dir / f"settings_{timestamp}.json"
+            
+            if self.config_file.exists():
+                import shutil
+                shutil.copy2(self.config_file, backup_file)
+                logging.info(f"Configuration backup created: {backup_file}")
+                
+                # Clean old backups (keep last 10)
+                self._cleanup_old_backups("settings_")
+                
+        except Exception as e:
+            logging.warning(f"Failed to create configuration backup: {e}")
     
-    def set_dark_mode(self, enabled: bool) -> None:
+    def _create_presets_backup(self) -> None:
+        """Create backup of current presets."""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_file = self.backup_dir / f"presets_{timestamp}.json"
+            
+            if self.presets_file.exists():
+                import shutil
+                shutil.copy2(self.presets_file, backup_file)
+                logging.info(f"Presets backup created: {backup_file}")
+                
+                # Clean old backups (keep last 10)
+                self._cleanup_old_backups("presets_")
+                
+        except Exception as e:
+            logging.warning(f"Failed to create presets backup: {e}")
+    
+    def _cleanup_old_backups(self, prefix: str, keep_count: int = 10) -> None:
+        """Clean up old backup files."""
+        try:
+            backup_files = sorted(
+                [f for f in self.backup_dir.glob(f"{prefix}*.json")],
+                key=lambda x: x.stat().st_mtime,
+                reverse=True
+            )
+            
+            # Remove old backups
+            for old_backup in backup_files[keep_count:]:
+                old_backup.unlink()
+                logging.debug(f"Removed old backup: {old_backup}")
+                
+        except Exception as e:
+            logging.warning(f"Failed to cleanup old backups: {e}")
+    
+    def reset_to_defaults(self, save: bool = True) -> bool:
         """
-        Set dark mode preference.
+        Reset configuration to default values.
         
         Args:
-            enabled: Whether to enable dark mode
-        """
-        self.set_setting("dark_mode", enabled)
-    
-    def get_theme(self) -> str:
-        """
-        Get current theme name.
-        
-        Returns:
-            str: Current theme name
-        """
-        return self.get_setting("theme", "light")
-    
-    def set_theme(self, theme_name: str) -> None:
-        """
-        Set the current theme.
-        
-        Args:
-            theme_name: Name of the theme to set
-        """
-        self.set_setting("theme", theme_name)
-        # Update dark mode setting based on theme
-        self.set_setting("dark_mode", theme_name.lower() == "dark")
-    
-    # Window State Management
-    def get_window_geometry(self) -> Dict[str, int]:
-        """
-        Get saved window geometry.
-        
-        Returns:
-            Dict[str, int]: Window geometry (width, height, maximized)
-        """
-        return {
-            "width": self.get_setting("window_width", DEFAULT_WINDOW_WIDTH),
-            "height": self.get_setting("window_height", DEFAULT_WINDOW_HEIGHT),
-            "maximized": self.get_setting("window_maximized", False)
-        }
-    
-    def save_window_geometry(self, width: int, height: int, maximized: bool) -> None:
-        """
-        Save window geometry.
-        
-        Args:
-            width: Window width
-            height: Window height
-            maximized: Whether window is maximized
-        """
-        self.set_setting("window_width", width)
-        self.set_setting("window_height", height)
-        self.set_setting("window_maximized", maximized)
-    
-    # Utility Methods
-    def reset_to_defaults(self) -> bool:
-        """
-        Reset both settings and presets to defaults.
-        
+            save: Whether to save after reset
+            
         Returns:
             bool: True if reset successfully
         """
         try:
-            self.reset_settings()
+            # Create backup first
+            if self.config_file.exists():
+                self._create_backup()
+            
+            # Reset to defaults
+            self._config = AppConfig()
             self._presets = DEFAULT_PRESETS.copy()
-            return self.save_presets()
-        except Exception:
+            
+            if save:
+                self.save_config(backup=False)
+                self.save_presets(backup=False)
+            
+            logging.info("Configuration reset to defaults")
+            return True
+            
+        except Exception as e:
+            logging.error(f"Failed to reset configuration: {e}")
             return False
     
-    def get_config_info(self) -> Dict[str, Any]:
+    def export_config(self, export_path: Path) -> bool:
         """
-        Get information about the current configuration.
+        Export current configuration to specified path.
         
+        Args:
+            export_path: Path to export configuration
+            
         Returns:
-            Dict[str, Any]: Configuration information
+            bool: True if exported successfully
         """
-        return {
-            "settings_file": str(self.settings_file),
-            "presets_file": str(self.presets_file),
-            "settings_count": len(self._settings),
-            "presets_count": len(self._presets),
-            "settings_file_exists": self.settings_file.exists(),
-            "presets_file_exists": self.presets_file.exists(),
-            "app_path": str(self.app_path)
-        }
+        try:
+            export_data = {
+                'config': self._config.to_dict(),
+                'presets': self._presets,
+                'exported_at': datetime.now().isoformat(),
+                'version': self._config.version
+            }
+            
+            success = save_json_config(export_path, export_data)
+            
+            if success:
+                logging.info(f"Configuration exported to: {export_path}")
+            
+            return success
+            
+        except Exception as e:
+            logging.error(f"Failed to export configuration: {e}")
+            return False
     
-    def validate_config_files(self) -> Dict[str, bool]:
+    def import_config(self, import_path: Path, merge: bool = False) -> bool:
         """
-        Validate configuration files.
+        Import configuration from specified path.
+        
+        Args:
+            import_path: Path to import configuration from
+            merge: Whether to merge with existing config or replace
+            
+        Returns:
+            bool: True if imported successfully
+        """
+        try:
+            # Validate path
+            is_valid, error = validate_path(import_path)
+            if not is_valid:
+                logging.error(f"Invalid import path: {error}")
+                return False
+            
+            if not import_path.exists():
+                logging.error(f"Import file does not exist: {import_path}")
+                return False
+            
+            # Load import data
+            import_data = load_json_config(import_path, {})
+            if not import_data:
+                logging.error("Failed to load import data")
+                return False
+            
+            # Create backup before import
+            self._create_backup()
+            self._create_presets_backup()
+            
+            # Import configuration
+            if merge:
+                # Merge with existing config
+                if 'config' in import_data:
+                    config_dict = self._config.to_dict()
+                    config_dict.update(import_data['config'])
+                    self._config = AppConfig.from_dict(config_dict)
+                
+                if 'presets' in import_data:
+                    self._presets.update(import_data['presets'])
+            else:
+                # Replace existing config
+                if 'config' in import_data:
+                    self._config = AppConfig.from_dict(import_data['config'])
+                
+                if 'presets' in import_data:
+                    self._presets = import_data['presets']
+            
+            # Save imported configuration
+            self.save_config(backup=False)
+            self.save_presets(backup=False)
+            
+            logging.info(f"Configuration imported from: {import_path}")
+            return True
+            
+        except Exception as e:
+            logging.error(f"Failed to import configuration: {e}")
+            return False
+    
+    def get_recent_backups(self, count: int = 5) -> List[Path]:
+        """
+        Get list of recent backup files.
+        
+        Args:
+            count: Number of recent backups to return
+            
+        Returns:
+            List[Path]: List of backup file paths
+        """
+        try:
+            backup_files = sorted(
+                self.backup_dir.glob("*.json"),
+                key=lambda x: x.stat().st_mtime,
+                reverse=True
+            )
+            return backup_files[:count]
+        except Exception as e:
+            logging.error(f"Failed to get recent backups: {e}")
+            return []
+    
+    def validate_config(self) -> List[str]:
+        """
+        Validate current configuration and return any issues.
         
         Returns:
-            Dict[str, bool]: Validation results
+            List[str]: List of validation issues (empty if valid)
         """
-        results = {
-            "settings_valid": False,
-            "presets_valid": False,
-            "settings_readable": False,
-            "presets_readable": False
-        }
+        issues = []
         
-        # Check settings file
         try:
-            if self.settings_file.exists():
-                with open(self.settings_file, 'r', encoding='utf-8') as f:
-                    json.load(f)
-                results["settings_valid"] = True
-                results["settings_readable"] = True
-        except Exception:
-            pass
+            # Validate window settings
+            if self._config.window.width < 800:
+                issues.append("Window width too small (minimum 800)")
+            
+            if self._config.window.height < 600:
+                issues.append("Window height too small (minimum 600)")
+            
+            # Validate chocolatey settings
+            if self._config.chocolatey.timeout_minutes < 1:
+                issues.append("Chocolatey timeout too small (minimum 1 minute)")
+            
+            if self._config.chocolatey.parallel_downloads < 1:
+                issues.append("Parallel downloads must be at least 1")
+            
+            # Validate file operation settings
+            if self._config.file_operations.max_file_size_gb < 1:
+                issues.append("Max file size too small (minimum 1 GB)")
+            
+            # Validate presets
+            for preset_name, packages in self._presets.items():
+                if not isinstance(packages, list):
+                    issues.append(f"Preset '{preset_name}' is not a list")
+                elif not all(isinstance(pkg, str) for pkg in packages):
+                    issues.append(f"Preset '{preset_name}' contains non-string packages")
+            
+        except Exception as e:
+            issues.append(f"Configuration validation error: {e}")
         
-        # Check presets file
-        try:
-            if self.presets_file.exists():
-                with open(self.presets_file, 'r', encoding='utf-8') as f:
-                    json.load(f)
-                results["presets_valid"] = True
-                results["presets_readable"] = True
-        except Exception:
-            pass
-        
-        return results
+        return issues

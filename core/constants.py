@@ -7,6 +7,7 @@ GUI-only version with simplified structure.
 
 from pathlib import Path
 from typing import Dict, List, Set
+import re
 
 # =============================================================================
 # APPLICATION INFO
@@ -101,8 +102,6 @@ SUPPORTED_EXPORT_FORMATS = [".json", ".csv", ".txt", ".xml"]
 # VALIDATION PATTERNS
 # =============================================================================
 
-import re
-
 VALID_PACKAGE_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9\-\._]+$')
 VALID_USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9\-\._@]+$')
 VALID_FILENAME_PATTERN = re.compile(r'^[^<>:"/\\|?*\x00-\x1f]+$')
@@ -159,6 +158,7 @@ DEFAULT_PRESETS = {
 COMMON_BLOATWARE = [
     # Microsoft Apps
     "Microsoft.3DBuilder",
+    "Microsoft.Appconnector",
     "Microsoft.BingFinance", 
     "Microsoft.BingNews",
     "Microsoft.BingSports",
@@ -203,32 +203,37 @@ COMMON_BLOATWARE = [
 ]
 
 # Legacy alias for backwards compatibility
-BLOATWARE_APPS = COMMON_BLOATWARE
+BLOATWARE_APPS = {app: app.replace("Microsoft.", "").replace(".", " ") for app in COMMON_BLOATWARE}
 
 # =============================================================================
 # WINDOWS SETTINGS
 # =============================================================================
 
 ESSENTIAL_SETTINGS = {
-    "Privacy": [
-        "Disable location tracking",
-        "Disable advertising ID",
-        "Disable app suggestions",
-        "Disable timeline collection"
-    ],
-    "Performance": [
-        "Disable visual effects",
-        "Optimize for performance",
-        "Disable startup programs",
-        "Clean temporary files"
-    ],
-    "Security": [
-        "Enable Windows Defender",
-        "Configure firewall",
-        "Disable remote assistance",
-        "Set strong password policy"
-    ]
+    "disable_telemetry": "Disable Windows telemetry and data collection",
+    "disable_cortana": "Disable Cortana virtual assistant",
+    "show_file_extensions": "Show file extensions in File Explorer",
+    "show_hidden_files": "Show hidden files and folders",
+    "disable_auto_updates": "Disable automatic Windows updates",
+    "disable_defender_cloud": "Disable Windows Defender cloud protection",
+    "disable_location_tracking": "Disable location tracking",
+    "disable_advertising_id": "Disable advertising ID",
+    "disable_suggested_apps": "Disable suggested apps in Start Menu",
+    "optimize_visual_effects": "Optimize visual effects for performance",
+    "disable_search_web": "Disable web search in Start Menu",
+    "disable_timeline": "Disable Windows Timeline feature",
+    "set_privacy_defaults": "Configure privacy settings to recommended defaults",
+    "disable_activity_history": "Disable activity history collection"
 }
+
+RECOMMENDED_SETTINGS = [
+    "disable_telemetry",
+    "show_file_extensions", 
+    "show_hidden_files",
+    "disable_advertising_id",
+    "disable_suggested_apps",
+    "set_privacy_defaults"
+]
 
 RECOMMENDED_REGISTRY_TWEAKS = {
     # Disable telemetry
@@ -242,6 +247,14 @@ RECOMMENDED_REGISTRY_TWEAKS = {
     # Disable automatic updates restart
     r"HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU": {
         "NoAutoRebootWithLoggedOnUsers": 1
+    },
+    # Show file extensions
+    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced": {
+        "HideFileExt": 0
+    },
+    # Show hidden files
+    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced": {
+        "Hidden": 1
     }
 }
 

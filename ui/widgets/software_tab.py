@@ -149,7 +149,7 @@ class EnhancedChocolateyManager(ChocolateyManager):
                 return False, msg
             
             # All tests passed
-            version = self._chocolatey_version or "Unknown"
+            version = self._version or "Unknown"
             msg = f"Chocolatey is working properly (version: {version})"
             self.logger.info(msg)
             return True, msg

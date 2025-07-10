@@ -1,38 +1,35 @@
 """
-Worker Signals for Thread Communication
+Worker thread signals and management for GUI integration.
 
-Provides Qt-based signal system for safe thread communication in GUI application.
-Simplified GUI-only version without CLI complexity.
+This module provides thread-safe worker classes and signal management
+for background operations in the GUI application.
 """
 
 import logging
-from typing import Any, Optional, Callable, Dict, Union
-from PySide6.QtCore import QObject, Signal, QThread, QTimer, QMutex
-from PySide6.QtWidgets import QApplication
+from typing import Any, Optional, Dict, Callable
+from PySide6.QtCore import QObject, QThread, Signal, QMutex, QMutexLocker
 
 
 class WorkerSignals(QObject):
     """
-    Standard signals for worker threads to communicate with main GUI thread.
+    Signals for worker thread communication.
     
-    All worker classes should use these signals for consistent communication.
+    Provides a standardized set of signals that worker threads can emit
+    to communicate with the main GUI thread safely.
     """
     
-    # Core signals
-    finished = Signal()                    # Worker completed (success or failure)
-    error = Signal(str)                   # Error occurred (error message)
-    result = Signal(object)               # Results available (result data)
-    progress = Signal(str)                # Progress update (progress message)
+    # Progress signals
+    progress = Signal(str, int)  # (message, percent)
+    status_changed = Signal(str)  # status message
     
-    # Extended signals for detailed feedback
-    progress_percent = Signal(int)        # Progress percentage (0-100)
-    status_changed = Signal(str)          # Status change (status message)
-    warning = Signal(str)                 # Warning message
-    info = Signal(str)                    # Info message
+    # Result signals
+    result = Signal(object)      # final result
+    error = Signal(str)          # error message
+    warning = Signal(str)        # warning message
+    info = Signal(str)           # info message
     
-    # Data signals
-    data_ready = Signal(object)           # Data is ready for processing
-    partial_result = Signal(object)       # Partial result available
+    # Control signals
+    finished = Signal()          # operation finished
     
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
@@ -41,22 +38,23 @@ class WorkerSignals(QObject):
     
     def emit_progress(self, message: str, percent: Optional[int] = None) -> None:
         """
-        Emit progress update with optional percentage.
+        Emit progress update.
         
         Args:
             message: Progress message
             percent: Optional progress percentage (0-100)
         """
         try:
-            self.progress.emit(message)
-            if percent is not None and 0 <= percent <= 100:
-                self.progress_percent.emit(percent)
+            if percent is not None:
+                self.progress.emit(message, percent)
+            else:
+                self.progress.emit(message, -1)
         except Exception as e:
             logging.error(f"Failed to emit progress signal: {e}")
     
     def emit_status(self, status: str) -> None:
         """
-        Emit status change.
+        Emit status update.
         
         Args:
             status: New status message
@@ -74,11 +72,11 @@ class WorkerSignals(QObject):
             result: Result data
         """
         try:
-            with QMutex():
-                if not self._is_finished:
-                    self.result.emit(result)
-                    self._is_finished = True
-                    self.finished.emit()
+            locker = QMutexLocker(self._mutex)
+            if not self._is_finished:
+                self.result.emit(result)
+                self._is_finished = True
+                self.finished.emit()
         except Exception as e:
             logging.error(f"Failed to emit result signal: {e}")
     
@@ -90,11 +88,11 @@ class WorkerSignals(QObject):
             error_message: Error description
         """
         try:
-            with QMutex():
-                if not self._is_finished:
-                    self.error.emit(error_message)
-                    self._is_finished = True
-                    self.finished.emit()
+            locker = QMutexLocker(self._mutex)
+            if not self._is_finished:
+                self.error.emit(error_message)
+                self._is_finished = True
+                self.finished.emit()
         except Exception as e:
             logging.error(f"Failed to emit error signal: {e}")
     
@@ -124,9 +122,10 @@ class BaseWorker(QObject):
         This method should be called from a QThread.
         """
         try:
-            with QMutex():
-                self._is_running = True
-                self._should_stop = False
+            locker = QMutexLocker(self._mutex)
+            self._is_running = True
+            self._should_stop = False
+            locker.unlock()
             
             self.signals.emit_status("Starting...")
             
@@ -141,8 +140,8 @@ class BaseWorker(QObject):
             logging.error(error_msg, exc_info=True)
             self.signals.emit_error(error_msg)
         finally:
-            with QMutex():
-                self._is_running = False
+            locker = QMutexLocker(self._mutex)
+            self._is_running = False
     
     def do_work(self) -> Any:
         """
@@ -155,8 +154,8 @@ class BaseWorker(QObject):
     
     def stop(self) -> None:
         """Request worker to stop gracefully."""
-        with QMutex():
-            self._should_stop = True
+        locker = QMutexLocker(self._mutex)
+        self._should_stop = True
     
     def should_stop(self) -> bool:
         """Check if worker should stop."""
@@ -242,81 +241,97 @@ class WorkerManager(QObject):
         Start a worker in a new thread.
         
         Args:
-            worker: Worker instance to run
+            worker: Worker instance to start
             worker_id: Optional worker identifier
             
         Returns:
             str: Worker ID for tracking
         """
-        with QMutex():
-            if worker_id is None:
-                self._worker_counter += 1
-                worker_id = f"worker_{self._worker_counter}"
-            
-            # Stop existing worker with same ID
-            if worker_id in self._active_workers:
-                self.stop_worker(worker_id)
-            
-            # Create and start thread
-            thread = WorkerThread(worker, self)
-            self._active_workers[worker_id] = thread
-            
-            # Connect cleanup signal
-            thread.finished.connect(
-                lambda: self._remove_worker(worker_id)
-            )
-            
-            thread.start()
-            logging.info(f"Started worker: {worker_id}")
-            
-            return worker_id
+        locker = QMutexLocker(self._mutex)
+        
+        if worker_id is None:
+            self._worker_counter += 1
+            worker_id = f"worker_{self._worker_counter}"
+        
+        # Stop existing worker with same ID
+        if worker_id in self._active_workers:
+            self.stop_worker(worker_id)
+        
+        # Create and start new worker thread
+        thread = WorkerThread(worker, self)
+        self._active_workers[worker_id] = thread
+        
+        # Auto-remove when finished
+        thread.finished.connect(lambda: self._remove_worker(worker_id))
+        
+        thread.start()
+        
+        logging.info(f"Started worker: {worker_id}")
+        return worker_id
     
     def stop_worker(self, worker_id: str) -> bool:
         """
         Stop a specific worker.
         
         Args:
-            worker_id: Worker to stop
+            worker_id: Worker identifier
             
         Returns:
             bool: True if worker was stopped
         """
-        with QMutex():
-            if worker_id in self._active_workers:
-                thread = self._active_workers[worker_id]
-                thread.stop_worker()
-                return True
-            return False
+        locker = QMutexLocker(self._mutex)
+        
+        if worker_id in self._active_workers:
+            thread = self._active_workers[worker_id]
+            thread.stop_worker()
+            del self._active_workers[worker_id]
+            logging.info(f"Stopped worker: {worker_id}")
+            return True
+        
+        return False
     
-    def stop_all_workers(self) -> None:
-        """Stop all active workers."""
-        with QMutex():
-            worker_ids = list(self._active_workers.keys())
+    def stop_all_workers(self) -> int:
+        """
+        Stop all active workers.
+        
+        Returns:
+            int: Number of workers stopped
+        """
+        locker = QMutexLocker(self._mutex)
+        
+        count = len(self._active_workers)
+        worker_ids = list(self._active_workers.keys())
         
         for worker_id in worker_ids:
-            self.stop_worker(worker_id)
+            thread = self._active_workers[worker_id]
+            thread.stop_worker()
+        
+        self._active_workers.clear()
+        
+        if count > 0:
+            logging.info(f"Stopped {count} workers")
+        
+        return count
     
     def _remove_worker(self, worker_id: str) -> None:
         """Remove worker from active list."""
-        with QMutex():
-            if worker_id in self._active_workers:
-                del self._active_workers[worker_id]
-                logging.info(f"Removed worker: {worker_id}")
+        locker = QMutexLocker(self._mutex)
+        self._active_workers.pop(worker_id, None)
     
     def get_active_workers(self) -> Dict[str, WorkerThread]:
-        """Get dictionary of active workers."""
-        with QMutex():
-            return self._active_workers.copy()
+        """Get copy of active workers dictionary."""
+        locker = QMutexLocker(self._mutex)
+        return self._active_workers.copy()
     
     def is_worker_active(self, worker_id: str) -> bool:
         """Check if a worker is currently active."""
-        with QMutex():
-            return worker_id in self._active_workers
+        locker = QMutexLocker(self._mutex)
+        return worker_id in self._active_workers
     
     def get_worker_count(self) -> int:
         """Get number of active workers."""
-        with QMutex():
-            return len(self._active_workers)
+        locker = QMutexLocker(self._mutex)
+        return len(self._active_workers)
 
 
 # =============================================================================
@@ -324,15 +339,7 @@ class WorkerManager(QObject):
 # =============================================================================
 
 def create_worker_thread(worker: BaseWorker) -> WorkerThread:
-    """
-    Create a worker thread for a BaseWorker instance.
-    
-    Args:
-        worker: Worker instance
-        
-    Returns:
-        WorkerThread: Configured thread
-    """
+    """Create a worker thread for a BaseWorker instance."""
     return WorkerThread(worker)
 
 
@@ -343,16 +350,7 @@ def connect_worker_signals(
     error_callback: Optional[Callable[[str], None]] = None,
     finished_callback: Optional[Callable[[], None]] = None
 ) -> None:
-    """
-    Connect worker signals to callback functions.
-    
-    Args:
-        worker: Worker instance
-        progress_callback: Progress update callback
-        result_callback: Result ready callback
-        error_callback: Error occurred callback
-        finished_callback: Worker finished callback
-    """
+    """Connect worker signals to callback functions."""
     if progress_callback:
         worker.signals.progress.connect(progress_callback)
     
@@ -367,16 +365,7 @@ def connect_worker_signals(
 
 
 def safe_emit_signal(signal: Signal, *args) -> bool:
-    """
-    Safely emit a signal with error handling.
-    
-    Args:
-        signal: Signal to emit
-        *args: Signal arguments
-        
-    Returns:
-        bool: True if signal was emitted successfully
-    """
+    """Safely emit a signal with error handling."""
     try:
         signal.emit(*args)
         return True
@@ -386,13 +375,9 @@ def safe_emit_signal(signal: Signal, *args) -> bool:
 
 
 def is_gui_available() -> bool:
-    """
-    Check if GUI is available and QApplication exists.
-    
-    Returns:
-        bool: True if GUI is available
-    """
+    """Check if GUI is available and QApplication exists."""
     try:
+        from PySide6.QtWidgets import QApplication
         app = QApplication.instance()
         return app is not None
     except Exception:
@@ -400,21 +385,11 @@ def is_gui_available() -> bool:
 
 
 def ensure_gui_thread(func: Callable) -> Callable:
-    """
-    Decorator to ensure function runs in GUI thread.
-    
-    Args:
-        func: Function to wrap
-        
-    Returns:
-        Callable: Wrapped function
-    """
+    """Decorator to ensure function runs in GUI thread."""
     def wrapper(*args, **kwargs):
-        if QThread.currentThread() == QApplication.instance().thread():
+        if is_gui_available():
             return func(*args, **kwargs)
         else:
-            logging.warning(f"Function {func.__name__} called from non-GUI thread")
-            # You could use QMetaObject.invokeMethod here for true GUI thread execution
-            return func(*args, **kwargs)
-    
+            logging.warning("GUI not available, skipping GUI operation")
+            return None
     return wrapper

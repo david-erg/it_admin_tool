@@ -217,51 +217,51 @@ class PackageSearcher:
             Tuple[bool, Optional[PackageInfo], str]: (success, package_info, error_message)
         """
         try:
-            cmd = f'choco info {package_name} --limit-output'
+            cmd = f'choco info "{package_name}" --limit-output'
             
             return_code, stdout, stderr = run_command_with_timeout(
                 cmd, timeout=30
             )
             
-            if return_code == 0:
-                package_info = self._parse_package_details(stdout, package_name)
-                if package_info:
-                    return True, package_info, ""
-                else:
-                    return False, None, "Package not found or could not parse details"
-            else:
-                return False, None, f"Failed to get package details: {stderr}"
-                
+            if return_code == 0 and stdout.strip():
+                # Parse the info output
+                lines = stdout.strip().split('\n')
+                if lines:
+                    parts = lines[0].split('|')
+                    if len(parts) >= 2:
+                        package_info = PackageInfo(
+                            name=parts[0].strip(),
+                            version=parts[1].strip(),
+                            description=parts[2].strip() if len(parts) > 2 else "No description available"
+                        )
+                        return True, package_info, ""
+            
+            return False, None, f"Package '{package_name}' not found"
+            
         except Exception as e:
             return False, None, f"Error getting package details: {str(e)}"
     
-    def _parse_package_details(self, output: str, package_name: str) -> Optional[PackageInfo]:
+    def validate_package_name(self, package_name: str) -> Tuple[bool, str]:
         """
-        Parse detailed package information from choco info output.
+        Validate a package name format.
         
         Args:
-            output: Raw choco info output
-            package_name: Package name
+            package_name: Package name to validate
         
         Returns:
-            Optional[PackageInfo]: Parsed package details or None
+            Tuple[bool, str]: (is_valid, error_message)
         """
-        lines = output.strip().split('\n')
+        if not package_name or not package_name.strip():
+            return False, "Package name cannot be empty"
         
-        for line in lines:
-            parts = line.split('|')
-            if len(parts) >= 2 and parts[0].strip().lower() == package_name.lower():
-                version = parts[1].strip()
-                description = parts[2].strip() if len(parts) > 2 else "No description available"
-                
-                return PackageInfo(
-                    name=package_name,
-                    version=version,
-                    description=description,
-                    summary=description[:200] + "..." if len(description) > 200 else description
-                )
+        # Basic validation - package names should be alphanumeric with dots, hyphens, underscores
+        if not re.match(r'^[a-zA-Z0-9._-]+$', package_name.strip()):
+            return False, "Package name contains invalid characters"
         
-        return None
+        if len(package_name) > 100:
+            return False, "Package name too long (max 100 characters)"
+        
+        return True, ""
     
     def filter_packages(
         self, 
@@ -269,7 +269,7 @@ class PackageSearcher:
         filters: Dict[str, any]
     ) -> List[PackageInfo]:
         """
-        Apply additional filters to a list of packages.
+        Apply filters to a list of packages.
         
         Args:
             packages: List of packages to filter
@@ -345,12 +345,11 @@ class PackageSearchWorker(BaseWorker):
     def run(self):
         """Search for packages without blocking UI."""
         try:
-            self.emit_progress(f"Searching for packages containing '{self.query}'...")
+            self.signals.emit_progress(f"Searching for packages containing '{self.query}'...")
             
             # Check prerequisites
             if not self.searcher.chocolatey_manager.is_chocolatey_installed():
-                self.emit_error("Chocolatey is not installed")
-                self.emit_result([])
+                self.signals.emit_error("Chocolatey is not installed")
                 return
             
             # Extract search options
@@ -382,23 +381,19 @@ class PackageSearchWorker(BaseWorker):
                     reverse = self.search_options.get('sort_reverse', False)
                     packages = self.searcher.sort_packages(packages, sort_by, reverse)
                 
-                self.emit_progress(f"Found {len(packages)} packages matching '{self.query}'")
+                self.signals.emit_progress(f"Found {len(packages)} packages matching '{self.query}'")
                 
                 if len(packages) == 0:
-                    self.emit_progress("No packages found. Try a different search term or adjust filters.")
+                    self.signals.emit_progress("No packages found. Try a different search term or adjust filters.")
                 elif len(packages) >= limit:
-                    self.emit_progress(f"Showing first {limit} results. Use more specific search terms for better results.")
+                    self.signals.emit_progress(f"Showing first {limit} results. Use more specific search terms for better results.")
                 
-                self.emit_result(packages)
+                self.signals.emit_result(packages)
             else:
-                self.emit_error(f"Search failed: {error_message}")
-                self.emit_result([])
+                self.signals.emit_error(f"Search failed: {error_message}")
                 
         except Exception as e:
-            self.emit_error(f"Search error: {str(e)}")
-            self.emit_result([])
-        finally:
-            self.emit_finished()
+            self.signals.emit_error(f"Search error: {str(e)}")
     
     def get_search_summary(self) -> Dict[str, any]:
         """

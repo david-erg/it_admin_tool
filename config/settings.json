@@ -1,0 +1,49 @@
+{
+  "window": {
+    "width": 1200,
+    "height": 800,
+    "x": null,
+    "y": null,
+    "maximized": true,
+    "theme": "light"
+  },
+  "application": {
+    "auto_check_updates": true,
+    "minimize_to_tray": false,
+    "start_minimized": false,
+    "remember_window_state": true,
+    "log_level": "info",
+    "max_log_files": 10,
+    "enable_animations": true,
+    "confirm_dangerous_operations": true,
+    "auto_backup_settings": true
+  },
+  "chocolatey": {
+    "auto_confirm": true,
+    "use_local_only": false,
+    "ignore_checksums": true,
+    "timeout_minutes": 10,
+    "parallel_downloads": 3,
+    "custom_source": null,
+    "proxy_url": null
+  },
+  "file_operations": {
+    "default_copy_mode": "copy",
+    "verify_copies": false,
+    "preserve_timestamps": true,
+    "preserve_permissions": true,
+    "show_progress": true,
+    "conflict_resolution": "ask",
+    "max_file_size_gb": 5
+  },
+  "system_info": {
+    "include_hardware": true,
+    "include_software": true,
+    "include_network": true,
+    "include_performance": false,
+    "detailed_scan": false,
+    "timeout_seconds": 30
+  },
+  "last_updated": "2025-07-10T10:45:42.300567",
+  "version": "3.0"
+}

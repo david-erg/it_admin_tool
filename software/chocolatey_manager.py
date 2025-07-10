@@ -226,15 +226,11 @@ class ChocolateyManager:
             return self._is_available
         
         try:
-            result = run_command_with_timeout(
-                ["choco", "--version"],
-                timeout=10,
-                capture_output=True
-            )
+            return_code, stdout, stderr = run_command_with_timeout("choco --version", timeout=10)
             
-            if result.returncode == 0:
+            if return_code == 0:
                 self._is_available = True
-                self._version = result.stdout.strip()
+                self._version = stdout.strip()
                 self._chocolatey_path = "choco"
                 logging.info(f"Chocolatey detected: version {self._version}")
             else:
@@ -246,6 +242,26 @@ class ChocolateyManager:
             logging.warning("Chocolatey not available")
         
         return self._is_available
+    
+    def is_chocolatey_installed(self) -> bool:
+        """
+        Check if Chocolatey is installed.
+        
+        Returns:
+            bool: True if Chocolatey is installed
+        """
+        return self.is_chocolatey_available()
+    
+    def get_chocolatey_version(self) -> str:
+        """
+        Get Chocolatey version.
+        
+        Returns:
+            str: Chocolatey version or "Unknown" if not available
+        """
+        if self.is_chocolatey_available():
+            return self._version or "Unknown"
+        return "Not installed"
     
     def get_chocolatey_info(self) -> Dict[str, Any]:
         """
@@ -269,6 +285,72 @@ class ChocolateyManager:
             'cache_age_seconds': time.time() - self._cache_time if self._cache_time else 0
         }
     
+    def test_chocolatey_functionality(self) -> Tuple[bool, str]:
+        """
+        Test Chocolatey functionality.
+        
+        Returns:
+            Tuple[bool, str]: (success, message)
+        """
+        if not self.is_chocolatey_installed():
+            return False, "Chocolatey is not installed or not in PATH"
+        
+        try:
+            # Test 1: Basic version check
+            return_code, stdout, stderr = run_command_with_timeout("choco --version", timeout=15)
+            
+            if return_code != 0:
+                return False, f"Chocolatey version check failed: {stderr}"
+            
+            # Test 2: List command
+            return_code, stdout, stderr = run_command_with_timeout(
+                "choco list chocolatey --exact", timeout=30
+            )
+            
+            if return_code != 0:
+                return False, f"Chocolatey list command failed: {stderr}"
+            
+            # Test 3: Search command (basic test)
+            return_code, stdout, stderr = run_command_with_timeout(
+                "choco search chocolatey --exact --limit-output", timeout=30
+            )
+            
+            if return_code != 0:
+                return False, f"Chocolatey search command failed: {stderr}"
+            
+            # All tests passed
+            version = self._version or "Unknown"
+            return True, f"Chocolatey is working properly (version: {version})"
+            
+        except Exception as e:
+            return False, f"Chocolatey test failed with exception: {str(e)}"
+    
+    def check_internet_connectivity(self) -> Tuple[bool, str]:
+        """
+        Check internet connectivity for Chocolatey operations.
+        
+        Returns:
+            Tuple[bool, str]: (has_internet, message)
+        """
+        test_hosts = [
+            "chocolatey.org",
+            "packages.chocolatey.org",
+            "community.chocolatey.org"
+        ]
+        
+        import socket
+        
+        for host in test_hosts:
+            try:
+                # Test DNS resolution and basic connectivity
+                socket.setdefaulttimeout(5)
+                socket.gethostbyname(host)
+                return True, f"Internet connectivity verified ({host})"
+            except (socket.gaierror, socket.timeout, OSError):
+                continue
+        
+        return False, "Cannot reach Chocolatey repositories - check internet connection"
+    
     def search_packages(
         self,
         query: str,
@@ -283,475 +365,276 @@ class ChocolateyManager:
             query: Search query
             limit: Maximum number of results
             include_prerelease: Include prerelease packages
-            exact_match: Exact package name match only
+            exact_match: Search for exact matches only
             
         Returns:
             ChocolateyResult: Search results
         """
-        result = ChocolateyResult(
-            success=False,
-            operation=OperationType.SEARCH
-        )
+        start_time = time.time()
+        result = ChocolateyResult(success=False, operation=OperationType.SEARCH)
         
         if not self.is_chocolatey_available():
-            result.error_message = get_error_message('chocolatey_not_found')
-            return result
-        
-        if not query or not query.strip():
-            result.error_message = "Search query cannot be empty"
+            result.error_message = "Chocolatey is not available"
             return result
         
         try:
-            start_time = time.time()
-            
-            # Build command
-            cmd = ["choco", "search", query.strip()]
-            
-            if exact_match:
-                cmd.append("--exact")
-            
-            if include_prerelease:
-                cmd.append("--prerelease")
-            
-            cmd.extend(["--limit-output", f"--page-size={limit}"])
-            
-            # Execute search with timeout
-            logging.info(f"Searching packages: {query}")
-            process_result = run_command_with_timeout(
-                cmd,
-                timeout=PACKAGE_SEARCH_TIMEOUT,
-                capture_output=True
-            )
-            
-            result.exit_code = process_result.returncode
-            result.output = process_result.stdout
-            result.execution_time = time.time() - start_time
-            
-            if process_result.returncode != 0:
-                result.error_message = f"Chocolatey search failed: {process_result.stderr}"
+            # Validate query
+            is_valid, error_msg = self.validator.is_valid_package_name(query)
+            if not is_valid and exact_match:
+                result.error_message = f"Invalid package name: {error_msg}"
                 return result
             
-            # Parse results
-            packages = self._parse_search_output(process_result.stdout)
-            result.packages = packages[:limit]  # Ensure limit
-            result.packages_processed = len(result.packages)
-            result.success = True
+            # Build search command
+            cmd_parts = ["choco", "search", query]
             
-            logging.info(f"Found {len(result.packages)} packages for query: {query}")
+            if exact_match:
+                cmd_parts.append("--exact")
+            
+            if include_prerelease:
+                cmd_parts.append("--prerelease")
+            
+            if limit > 0:
+                cmd_parts.extend(["--page-size", str(limit)])
+            
+            cmd_parts.append("--limit-output")
+            
+            cmd = " ".join(cmd_parts)
+            
+            # Execute search
+            return_code, stdout, stderr = run_command_with_timeout(
+                cmd, timeout=PACKAGE_SEARCH_TIMEOUT
+            )
+            
+            result.execution_time = time.time() - start_time
+            result.exit_code = return_code
+            result.output = stdout
+            
+            if return_code == 0:
+                # Parse search results
+                packages = self._parse_search_output(stdout)
+                result.packages = packages
+                result.packages_processed = len(packages)
+                result.success = True
+            else:
+                result.error_message = f"Search failed: {stderr}"
             
         except subprocess.TimeoutExpired:
             result.error_message = f"Search timed out after {PACKAGE_SEARCH_TIMEOUT} seconds"
-            logging.error(f"Package search timed out: {query}")
         except Exception as e:
-            result.error_message = f"Search failed: {str(e)}"
-            logging.error(f"Package search error: {e}")
+            result.error_message = f"Search error: {str(e)}"
         
+        result.execution_time = time.time() - start_time
         return result
     
-    def get_installed_packages(self, refresh_cache: bool = False) -> ChocolateyResult:
+    def _parse_search_output(self, output: str) -> List[ChocolateyPackage]:
         """
-        Get list of installed packages.
+        Parse Chocolatey search output.
         
         Args:
-            refresh_cache: Force refresh of package cache
+            output: Raw search output
             
         Returns:
-            ChocolateyResult: Installed packages
+            List[ChocolateyPackage]: Parsed packages
         """
-        result = ChocolateyResult(
-            success=False,
-            operation=OperationType.LIST
-        )
+        packages = []
         
-        if not self.is_chocolatey_available():
-            result.error_message = get_error_message('chocolatey_not_found')
-            return result
+        for line in output.strip().split('\n'):
+            if not line.strip():
+                continue
+            
+            # Parse limited output format: packagename|version
+            parts = line.split('|')
+            if len(parts) >= 2:
+                package = ChocolateyPackage(
+                    name=parts[0].strip(),
+                    version=parts[1].strip()
+                )
+                packages.append(package)
         
-        # Check cache
-        current_time = time.time()
-        if not refresh_cache and self._installed_cache and (current_time - self._cache_time) < self._cache_ttl:
-            result.packages = list(self._installed_cache.values())
-            result.packages_processed = len(result.packages)
-            result.success = True
-            return result
-        
-        try:
-            start_time = time.time()
-            
-            # Get installed packages
-            cmd = ["choco", "list", "--local-only", "--limit-output"]
-            
-            logging.info("Getting installed packages list")
-            process_result = run_command_with_timeout(
-                cmd,
-                timeout=30,
-                capture_output=True
-            )
-            
-            result.exit_code = process_result.returncode
-            result.output = process_result.stdout
-            result.execution_time = time.time() - start_time
-            
-            if process_result.returncode != 0:
-                result.error_message = f"Failed to get installed packages: {process_result.stderr}"
-                return result
-            
-            # Parse results
-            packages = self._parse_installed_output(process_result.stdout)
-            result.packages = packages
-            result.packages_processed = len(packages)
-            result.success = True
-            
-            # Update cache
-            self._installed_cache = {pkg.name: pkg for pkg in packages}
-            self._cache_time = current_time
-            
-            logging.info(f"Found {len(packages)} installed packages")
-            
-        except subprocess.TimeoutExpired:
-            result.error_message = "Getting installed packages timed out"
-            logging.error("Get installed packages timed out")
-        except Exception as e:
-            result.error_message = f"Failed to get installed packages: {str(e)}"
-            logging.error(f"Get installed packages error: {e}")
-        
-        return result
+        return packages
     
-    def get_package_info(self, package_name: str) -> Optional[ChocolateyPackage]:
-        """
-        Get detailed information about a specific package.
-        
-        Args:
-            package_name: Package name
-            
-        Returns:
-            Optional[ChocolateyPackage]: Package information or None
-        """
-        # Validate package name
-        is_valid, error = self.validator.is_valid_package_name(package_name)
-        if not is_valid:
-            logging.error(f"Invalid package name: {error}")
-            return None
-        
-        # Try exact search first
-        search_result = self.search_packages(package_name, limit=1, exact_match=True)
-        if search_result.success and search_result.packages:
-            package = search_result.packages[0]
-            
-            # Check if installed
-            if package_name in self._installed_cache:
-                installed_pkg = self._installed_cache[package_name]
-                package.status = PackageStatus.INSTALLED
-                package.installed_version = installed_pkg.installed_version
-                
-                # Check if outdated
-                if package.version and installed_pkg.installed_version:
-                    if self._compare_versions(package.version, installed_pkg.installed_version) > 0:
-                        package.status = PackageStatus.OUTDATED
-                        package.available_version = package.version
-            
-            return package
-        
-        return None
-    
-    def install_packages(self, package_names: List[str]) -> ChocolateyResult:
+    def install_packages(
+        self,
+        package_names: List[str],
+        force: bool = False,
+        skip_powershell: bool = True,
+        ignore_checksums: bool = False
+    ) -> ChocolateyResult:
         """
         Install multiple packages.
         
         Args:
             package_names: List of package names to install
+            force: Force installation
+            skip_powershell: Skip PowerShell scripts
+            ignore_checksums: Ignore package checksums
             
         Returns:
-            ChocolateyResult: Installation result
+            ChocolateyResult: Installation results
         """
-        result = ChocolateyResult(
-            success=False,
-            operation=OperationType.INSTALL
-        )
+        start_time = time.time()
+        result = ChocolateyResult(success=False, operation=OperationType.INSTALL)
         
         if not self.is_chocolatey_available():
-            result.error_message = get_error_message('chocolatey_not_found')
+            result.error_message = "Chocolatey is not available"
             return result
         
-        if not check_admin_privileges():
-            result.error_message = get_error_message('admin_required')
-            return result
-        
-        # Validate package names
-        valid_packages, invalid_packages = self.validator.validate_package_list(package_names)
-        
-        if invalid_packages:
-            result.add_warning(f"Invalid packages skipped: {', '.join(invalid_packages)}")
-        
-        if not valid_packages:
-            result.error_message = "No valid packages to install"
+        if not package_names:
+            result.error_message = "No packages specified"
             return result
         
         try:
-            start_time = time.time()
+            # Validate package names
+            valid_packages, invalid_packages = self.validator.validate_package_list(package_names)
             
-            # Build command
-            cmd = ["choco", "install"] + valid_packages + CHOCOLATEY_INSTALL_ARGS
+            if invalid_packages:
+                result.add_warning(f"Invalid packages skipped: {', '.join(invalid_packages)}")
             
-            logging.info(f"Installing packages: {', '.join(valid_packages)}")
+            if not valid_packages:
+                result.error_message = "No valid packages to install"
+                return result
+            
+            # Build install command
+            cmd_parts = ["choco", "install"] + valid_packages + ["-y"]
+            
+            if force:
+                cmd_parts.append("--force")
+            
+            if skip_powershell:
+                cmd_parts.append("--skip-powershell")
+            
+            if ignore_checksums:
+                cmd_parts.append("--ignore-checksums")
+            
+            cmd = " ".join(cmd_parts)
             
             # Execute installation
-            process_result = run_command_with_timeout(
-                cmd,
-                timeout=CHOCOLATEY_INSTALL_TIMEOUT,
-                capture_output=True
+            return_code, stdout, stderr = run_command_with_timeout(
+                cmd, timeout=CHOCOLATEY_INSTALL_TIMEOUT
             )
             
-            result.exit_code = process_result.returncode
-            result.output = process_result.stdout
             result.execution_time = time.time() - start_time
+            result.exit_code = return_code
+            result.output = stdout
             result.packages_processed = len(valid_packages)
             
-            # Parse installation results
-            if process_result.returncode == 0:
+            if return_code == 0:
                 result.success = True
                 result.packages_succeeded = len(valid_packages)
-                
-                # Clear cache to force refresh
-                self._installed_cache.clear()
-                self._cache_time = 0
-                
-                logging.info(f"Successfully installed {len(valid_packages)} packages")
             else:
-                # Try to determine which packages failed
-                failed_packages = self._parse_installation_failures(process_result.stdout, valid_packages)
-                result.packages_failed = len(failed_packages)
-                result.packages_succeeded = len(valid_packages) - result.packages_failed
-                
-                if result.packages_succeeded > 0:
-                    result.success = True
-                    result.add_warning(f"Some packages failed to install: {', '.join(failed_packages)}")
-                else:
-                    result.error_message = f"All packages failed to install: {process_result.stderr}"
-            
-        except subprocess.TimeoutExpired:
-            result.error_message = f"Installation timed out after {CHOCOLATEY_INSTALL_TIMEOUT} seconds"
-            logging.error(f"Package installation timed out: {valid_packages}")
-        except Exception as e:
-            result.error_message = f"Installation failed: {str(e)}"
-            logging.error(f"Package installation error: {e}")
-        
-        return result
-    
-    def uninstall_packages(self, package_names: List[str]) -> ChocolateyResult:
-        """
-        Uninstall multiple packages.
-        
-        Args:
-            package_names: List of package names to uninstall
-            
-        Returns:
-            ChocolateyResult: Uninstallation result
-        """
-        result = ChocolateyResult(
-            success=False,
-            operation=OperationType.UNINSTALL
-        )
-        
-        if not self.is_chocolatey_available():
-            result.error_message = get_error_message('chocolatey_not_found')
-            return result
-        
-        if not check_admin_privileges():
-            result.error_message = get_error_message('admin_required')
-            return result
-        
-        # Validate package names
-        valid_packages, invalid_packages = self.validator.validate_package_list(package_names)
-        
-        if invalid_packages:
-            result.add_warning(f"Invalid packages skipped: {', '.join(invalid_packages)}")
-        
-        if not valid_packages:
-            result.error_message = "No valid packages to uninstall"
-            return result
-        
-        try:
-            start_time = time.time()
-            
-            # Build command
-            cmd = ["choco", "uninstall"] + valid_packages + ["--yes", "--remove-dependencies"]
-            
-            logging.info(f"Uninstalling packages: {', '.join(valid_packages)}")
-            
-            # Execute uninstallation
-            process_result = run_command_with_timeout(
-                cmd,
-                timeout=CHOCOLATEY_INSTALL_TIMEOUT,
-                capture_output=True
-            )
-            
-            result.exit_code = process_result.returncode
-            result.output = process_result.stdout
-            result.execution_time = time.time() - start_time
-            result.packages_processed = len(valid_packages)
-            
-            if process_result.returncode == 0:
-                result.success = True
-                result.packages_succeeded = len(valid_packages)
-                
-                # Clear cache to force refresh
-                self._installed_cache.clear()
-                self._cache_time = 0
-                
-                logging.info(f"Successfully uninstalled {len(valid_packages)} packages")
-            else:
-                result.error_message = f"Uninstallation failed: {process_result.stderr}"
+                result.error_message = f"Installation failed: {stderr}"
                 result.packages_failed = len(valid_packages)
             
         except subprocess.TimeoutExpired:
-            result.error_message = f"Uninstallation timed out after {CHOCOLATEY_INSTALL_TIMEOUT} seconds"
-            logging.error(f"Package uninstallation timed out: {valid_packages}")
+            result.error_message = f"Installation timed out after {CHOCOLATEY_INSTALL_TIMEOUT} seconds"
         except Exception as e:
-            result.error_message = f"Uninstallation failed: {str(e)}"
-            logging.error(f"Package uninstallation error: {e}")
+            result.error_message = f"Installation error: {str(e)}"
         
+        result.execution_time = time.time() - start_time
         return result
+
+
+class ChocolateyInstallWorker(BaseWorker):
+    """
+    Worker class for installing Chocolatey package manager.
     
-    def _parse_search_output(self, output: str) -> List[ChocolateyPackage]:
-        """Parse Chocolatey search output."""
-        packages = []
-        
-        try:
-            for line in output.strip().split('\n'):
-                line = line.strip()
-                if not line or '|' not in line:
-                    continue
-                
-                # Expected format: packagename|version
-                parts = line.split('|', 1)
-                if len(parts) >= 2:
-                    name = parts[0].strip().lower()
-                    version = parts[1].strip()
-                    
-                    if name and version:
-                        package = ChocolateyPackage(
-                            name=name,
-                            version=version,
-                            title=name.title(),
-                            status=PackageStatus.NOT_INSTALLED
-                        )
-                        packages.append(package)
-        
-        except Exception as e:
-            logging.error(f"Failed to parse search output: {e}")
-        
-        return packages
+    This worker handles the installation of Chocolatey itself in a background thread,
+    providing progress updates and handling the PowerShell installation script.
+    """
     
-    def _parse_installed_output(self, output: str) -> List[ChocolateyPackage]:
-        """Parse Chocolatey installed packages output."""
-        packages = []
-        
-        try:
-            for line in output.strip().split('\n'):
-                line = line.strip()
-                if not line or '|' not in line:
-                    continue
-                
-                # Expected format: packagename|version
-                parts = line.split('|', 1)
-                if len(parts) >= 2:
-                    name = parts[0].strip().lower()
-                    version = parts[1].strip()
-                    
-                    if name and version:
-                        package = ChocolateyPackage(
-                            name=name,
-                            version=version,
-                            installed_version=version,
-                            title=name.title(),
-                            status=PackageStatus.INSTALLED
-                        )
-                        packages.append(package)
-        
-        except Exception as e:
-            logging.error(f"Failed to parse installed output: {e}")
-        
-        return packages
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.installation_url = "https://chocolatey.org/install.ps1"
     
-    def _parse_installation_failures(self, output: str, package_names: List[str]) -> List[str]:
-        """Parse installation output to identify failed packages."""
-        failed = []
-        
-        try:
-            output_lower = output.lower()
-            for package_name in package_names:
-                # Look for failure indicators
-                if any(indicator in output_lower for indicator in [
-                    f"{package_name.lower()} not installed",
-                    f"{package_name.lower()} failed",
-                    f"error installing {package_name.lower()}"
-                ]):
-                    failed.append(package_name)
-        
-        except Exception as e:
-            logging.error(f"Failed to parse installation failures: {e}")
-            # If parsing fails, assume all failed for safety
-            return package_names
-        
-        return failed
-    
-    def _compare_versions(self, version1: str, version2: str) -> int:
+    def do_work(self) -> bool:
         """
-        Compare two version strings.
+        Install Chocolatey package manager.
         
         Returns:
-            int: -1 if version1 < version2, 0 if equal, 1 if version1 > version2
+            bool: True if installation successful, False otherwise
         """
         try:
-            # Simple version comparison - split by dots and compare numerically
-            def normalize_version(v: str) -> List[int]:
-                # Remove non-numeric suffixes
-                v = re.sub(r'[^0-9.].*$', '', v)
-                parts = v.split('.')
-                return [int(p) if p.isdigit() else 0 for p in parts]
+            self.signals.emit_status("Starting Chocolatey installation...")
             
-            v1_parts = normalize_version(version1)
-            v2_parts = normalize_version(version2)
+            # Check if already installed
+            if self._check_existing_installation():
+                self.signals.emit_status("Chocolatey is already installed")
+                return True
             
-            # Pad to same length
-            max_len = max(len(v1_parts), len(v2_parts))
-            v1_parts.extend([0] * (max_len - len(v1_parts)))
-            v2_parts.extend([0] * (max_len - len(v2_parts)))
+            # Check admin privileges
+            if not check_admin_privileges():
+                self.signals.emit_status("ERROR: Administrator privileges required for Chocolatey installation")
+                return False
             
-            # Compare
-            for p1, p2 in zip(v1_parts, v2_parts):
-                if p1 < p2:
-                    return -1
-                elif p1 > p2:
-                    return 1
+            self.signals.emit_status("Downloading Chocolatey installation script...")
             
-            return 0
+            # PowerShell command to install Chocolatey
+            install_command = [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy", "Bypass",
+                "-Command",
+                (
+                    "Set-ExecutionPolicy Bypass -Scope Process -Force; "
+                    "[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; "
+                    "iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))"
+                )
+            ]
             
-        except Exception:
-            # Fallback to string comparison
-            if version1 < version2:
-                return -1
-            elif version1 > version2:
-                return 1
+            self.signals.emit_status("Running Chocolatey installation...")
+            
+            # Execute installation command
+            return_code, stdout, stderr = run_command_with_timeout(
+                " ".join(f'"{arg}"' if " " in arg else arg for arg in install_command),
+                timeout=CHOCOLATEY_INSTALL_TIMEOUT
+            )
+            
+            if return_code == 0:
+                self.signals.emit_status("Chocolatey installation completed successfully")
+                
+                # Verify installation
+                if self._verify_installation():
+                    self.signals.emit_status("✓ Chocolatey installation verified")
+                    return True
+                else:
+                    self.signals.emit_status("⚠ Warning: Chocolatey installation cannot be verified")
+                    return False
             else:
-                return 0
+                error_msg = f"Chocolatey installation failed (return code: {return_code})"
+                if stderr:
+                    error_msg += f"\nError: {stderr}"
+                self.signals.emit_status(error_msg)
+                return False
+                
+        except subprocess.TimeoutExpired:
+            self.signals.emit_status("ERROR: Chocolatey installation timed out")
+            return False
+        except Exception as e:
+            self.signals.emit_status(f"ERROR: Chocolatey installation failed: {str(e)}")
+            return False
     
-    def clear_cache(self) -> None:
-        """Clear the installed packages cache."""
-        self._installed_cache.clear()
-        self._cache_time = 0
-        logging.info("Chocolatey package cache cleared")
+    def _check_existing_installation(self) -> bool:
+        """Check if Chocolatey is already installed."""
+        try:
+            return_code, stdout, stderr = run_command_with_timeout("choco --version", timeout=10)
+            return return_code == 0
+        except:
+            return False
     
-    def get_cache_info(self) -> Dict[str, Any]:
-        """Get cache information."""
-        current_time = time.time()
-        cache_age = current_time - self._cache_time if self._cache_time else 0
-        
-        return {
-            'size': len(self._installed_cache),
-            'age_seconds': cache_age,
-            'age_minutes': cache_age / 60,
-            'is_fresh': cache_age < self._cache_ttl,
-            'ttl_seconds': self._cache_ttl
-        }
+    def _verify_installation(self) -> bool:
+        """Verify that Chocolatey was installed successfully."""
+        try:
+            # Wait a moment for installation to complete
+            time.sleep(2)
+            
+            # Test basic Chocolatey command
+            return_code, stdout, stderr = run_command_with_timeout("choco --version", timeout=15)
+            
+            if return_code == 0 and stdout.strip():
+                self.signals.emit_status(f"Chocolatey version: {stdout.strip()}")
+                return True
+            return False
+            
+        except Exception as e:
+            self.signals.emit_status(f"Installation verification failed: {str(e)}")
+            return False

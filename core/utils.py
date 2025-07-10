@@ -106,7 +106,7 @@ def run_command_with_timeout(
     shell: bool = False,
     capture_output: bool = True,
     check: bool = False
-) -> subprocess.CompletedProcess:
+) -> Tuple[int, str, str]:
     """
     Run a command with timeout and proper error handling.
     
@@ -118,7 +118,7 @@ def run_command_with_timeout(
         check: Whether to raise exception on non-zero exit
         
     Returns:
-        CompletedProcess: Command result
+        Tuple[int, str, str]: (return_code, stdout, stderr)
         
     Raises:
         subprocess.TimeoutExpired: If command times out
@@ -139,7 +139,7 @@ def run_command_with_timeout(
             check=check
         )
         
-        return result
+        return result.returncode, result.stdout or "", result.stderr or ""
         
     except subprocess.TimeoutExpired as e:
         logging.error(f"Command timed out after {timeout}s: {command}")
@@ -166,19 +166,19 @@ def query_wmic(query: str, timeout: int = WMI_QUERY_TIMEOUT) -> List[str]:
         List[str]: Cleaned query results (empty lines and headers removed)
     """
     try:
-        result = run_command_with_timeout(
+        return_code, stdout, stderr = run_command_with_timeout(
             query, 
             timeout=timeout,
             shell=True,
             capture_output=True
         )
         
-        if result.returncode != 0:
-            logging.warning(f"WMI query returned non-zero exit code: {result.returncode}")
+        if return_code != 0:
+            logging.warning(f"WMI query returned non-zero exit code: {return_code}")
             return []
         
         # Clean and filter results
-        lines = result.stdout.split('\n')
+        lines = stdout.split('\n')
         cleaned = []
         
         for line in lines:
@@ -209,7 +209,7 @@ def safe_get_env_var(var_name: str, default: str = "") -> str:
         str: Environment variable value or default
     """
     try:
-        return os.getenv(var_name, default)
+        return os.environ.get(var_name, default)
     except Exception:
         return default
 
@@ -237,20 +237,21 @@ def validate_username(username: str) -> Tuple[bool, str]:
     if not VALID_USERNAME_PATTERN.match(username):
         return False, "Username contains invalid characters"
     
-    # Check for reserved names
-    reserved = ['con', 'prn', 'aux', 'nul', 'com1', 'com2', 'com3', 'com4', 
-                'com5', 'com6', 'com7', 'com8', 'com9', 'lpt1', 'lpt2', 
-                'lpt3', 'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9']
+    reserved_names = [
+        'con', 'prn', 'aux', 'nul', 'com1', 'com2', 'com3', 'com4',
+        'com5', 'com6', 'com7', 'com8', 'com9', 'lpt1', 'lpt2', 'lpt3',
+        'lpt4', 'lpt5', 'lpt6', 'lpt7', 'lpt8', 'lpt9'
+    ]
     
-    if username.lower() in reserved:
-        return False, "Username is a reserved system name"
+    if username.lower() in reserved_names:
+        return False, f"'{username}' is a reserved name"
     
     return True, ""
 
 
 def validate_password(password: str) -> Tuple[bool, str]:
     """
-    Validate a password according to Windows security policy.
+    Validate a Windows password.
     
     Args:
         password: Password to validate
@@ -262,12 +263,12 @@ def validate_password(password: str) -> Tuple[bool, str]:
         return False, "Password cannot be empty"
     
     if len(password) < 8:
-        return False, "Password must be at least 8 characters long"
+        return False, "Password must be at least 8 characters"
     
-    if len(password) > 128:
-        return False, "Password too long (max 128 characters)"
+    if len(password) > 127:
+        return False, "Password too long (max 127 characters)"
     
-    # Check complexity requirements
+    # Check for complexity requirements
     has_upper = any(c.isupper() for c in password)
     has_lower = any(c.islower() for c in password)
     has_digit = any(c.isdigit() for c in password)
@@ -276,7 +277,7 @@ def validate_password(password: str) -> Tuple[bool, str]:
     complexity_count = sum([has_upper, has_lower, has_digit, has_special])
     
     if complexity_count < 3:
-        return False, "Password must contain at least 3 of: uppercase, lowercase, numbers, special characters"
+        return False, "Password must contain at least 3 of: uppercase, lowercase, digits, special characters"
     
     return True, ""
 
@@ -400,33 +401,27 @@ def sanitize_filename(filename: str) -> str:
     
     # Ensure it's not empty
     if not sanitized:
-        sanitized = "unnamed_file"
-    
-    # Truncate if too long
-    if len(sanitized) > 255:
-        name, ext = os.path.splitext(sanitized)
-        max_name_len = 255 - len(ext)
-        sanitized = name[:max_name_len] + ext
+        sanitized = "unnamed"
     
     return sanitized
 
 
-def get_unique_filename(filepath: Path) -> Path:
+def get_unique_filename(base_path: Path) -> Path:
     """
-    Generate a unique filename if the file already exists.
+    Get a unique filename by appending numbers if file exists.
     
     Args:
-        filepath: Original file path
+        base_path: Base file path
         
     Returns:
         Path: Unique file path
     """
-    if not filepath.exists():
-        return filepath
+    if not base_path.exists():
+        return base_path
     
-    stem = filepath.stem
-    suffix = filepath.suffix
-    parent = filepath.parent
+    stem = base_path.stem
+    suffix = base_path.suffix
+    parent = base_path.parent
     
     counter = 1
     while True:
@@ -441,118 +436,101 @@ def get_unique_filename(filepath: Path) -> Path:
 # CONFIGURATION HELPERS
 # =============================================================================
 
-def load_json_config(config_path: Path, default: Dict = None) -> Dict[str, Any]:
+def load_json_config(file_path: Path, default: Any = None) -> Any:
     """
-    Load JSON configuration file with error handling.
+    Load JSON configuration from file with error handling.
     
     Args:
-        config_path: Path to configuration file
-        default: Default configuration if file doesn't exist
+        file_path: Path to JSON file
+        default: Default value if file doesn't exist or is invalid
         
     Returns:
-        Dict[str, Any]: Configuration dictionary
+        Any: Loaded configuration or default
     """
-    if default is None:
-        default = {}
-    
     try:
-        if config_path.exists():
-            with open(config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        else:
-            return default.copy()
-    except (json.JSONDecodeError, IOError) as e:
-        logging.error(f"Failed to load config from {config_path}: {e}")
-        return default.copy()
+        if not file_path.exists():
+            return default
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+            
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
+        logging.error(f"Failed to load JSON config from {file_path}: {e}")
+        return default
+    except Exception as e:
+        logging.error(f"Unexpected error loading JSON config: {e}")
+        return default
 
 
-def save_json_config(config_path: Path, config: Dict[str, Any]) -> bool:
+def save_json_config(file_path: Path, data: Any) -> bool:
     """
-    Save configuration to JSON file with error handling.
+    Save data to JSON file with error handling.
     
     Args:
-        config_path: Path to save configuration
-        config: Configuration dictionary
+        file_path: Path to save JSON file
+        data: Data to save
         
     Returns:
         bool: True if saved successfully
     """
     try:
-        # Ensure directory exists
-        config_path.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure parent directory exists
+        file_path.parent.mkdir(parents=True, exist_ok=True)
         
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
+        # Write JSON with pretty formatting
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
         
         return True
         
-    except (IOError, TypeError) as e:
-        logging.error(f"Failed to save config to {config_path}: {e}")
+    except (OSError, UnicodeEncodeError) as e:
+        logging.error(f"Failed to save JSON config to {file_path}: {e}")
+        return False
+    except Exception as e:
+        logging.error(f"Unexpected error saving JSON config: {e}")
         return False
 
 
 # =============================================================================
-# LOGGING SETUP
+# LOGGING
 # =============================================================================
 
-def setup_logging(log_file: Optional[Path] = None, level: int = logging.INFO) -> None:
+def setup_logging(log_file: Path, level: int = logging.INFO) -> None:
     """
-    Setup application logging with file and console handlers.
+    Set up application logging.
     
     Args:
-        log_file: Optional log file path
+        log_file: Path to log file
         level: Logging level
     """
-    # Create formatter
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    
-    # Configure root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(level)
-    
-    # Clear existing handlers
-    root_logger.handlers.clear()
-    
-    # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(level)
-    console_handler.setFormatter(formatter)
-    root_logger.addHandler(console_handler)
-    
-    # File handler (optional)
-    if log_file:
-        try:
-            log_file.parent.mkdir(parents=True, exist_ok=True)
-            file_handler = logging.FileHandler(log_file, encoding='utf-8')
-            file_handler.setLevel(level)
-            file_handler.setFormatter(formatter)
-            root_logger.addHandler(file_handler)
-        except Exception as e:
-            console_handler.handle(
-                logging.LogRecord(
-                    name='setup_logging',
-                    level=logging.ERROR,
-                    pathname='',
-                    lineno=0,
-                    msg=f"Failed to setup file logging: {e}",
-                    args=(),
-                    exc_info=None
-                )
-            )
+    try:
+        # Ensure log directory exists
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Configure logging
+        logging.basicConfig(
+            level=level,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(log_file, encoding='utf-8'),
+                logging.StreamHandler(sys.stdout)
+            ]
+        )
+        
+        logging.info(f"Logging initialized: {log_file}")
+        
+    except Exception as e:
+        print(f"Failed to setup logging: {e}")
 
 
-def get_error_message(error_key: str, default: str = "An error occurred") -> str:
+def get_error_message(error_key: str) -> str:
     """
-    Get localized error message from constants.
+    Get error message by key.
     
     Args:
         error_key: Error message key
-        default: Default message if key not found
         
     Returns:
         str: Error message
     """
-    return ERROR_MESSAGES.get(error_key, default)
+    return ERROR_MESSAGES.get(error_key, f"Unknown error: {error_key}")
